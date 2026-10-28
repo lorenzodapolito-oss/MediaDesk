@@ -10,7 +10,9 @@ pub mod tags;
 pub const EXTENSIONS: [&str; 5] = ["mp3", "flac", "wav", "m4a", "ogg"];
 
 pub fn is_audio(path: &std::path::Path) -> bool {
-    path.extension().and_then(|e| e.to_str()).is_some_and(|e| EXTENSIONS.iter().any(|x| x.eq_ignore_ascii_case(e)))
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| EXTENSIONS.iter().any(|x| x.eq_ignore_ascii_case(e)))
 }
 
 /// Audio files directly inside `folder`, sorted by name (case-insensitive).

@@ -15,7 +15,10 @@ fn is_year(s: &str) -> bool {
 /// `Artist - Title [Album|Year]`, `Artist - Title (Album|Year)`, `Artist - Title - Album|Year`,
 /// `Artist - Title`, `Artist_Title`, or just the title.
 pub fn guess_from_filename(file_name: &str) -> Guess {
-    let stem = std::path::Path::new(file_name).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let stem = std::path::Path::new(file_name)
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let stem = stem.trim();
     let mut g = Guess::default();
     let extra = |g: &mut Guess, third: &str| {
@@ -65,13 +68,27 @@ mod tests {
     #[test]
     fn guesses() {
         let g = guess_from_filename("Queen - Bohemian Rhapsody [1975].mp3");
-        assert_eq!((g.artist.as_str(), g.title.as_str(), g.year.as_str(), g.album.as_str()), ("Queen", "Bohemian Rhapsody", "1975", ""));
+        assert_eq!(
+            (
+                g.artist.as_str(),
+                g.title.as_str(),
+                g.year.as_str(),
+                g.album.as_str()
+            ),
+            ("Queen", "Bohemian Rhapsody", "1975", "")
+        );
         let g = guess_from_filename("Queen - Bohemian Rhapsody (A Night at the Opera).mp3");
         assert_eq!(g.album, "A Night at the Opera");
         let g = guess_from_filename("Queen - Bohemian Rhapsody - 1975.mp3");
-        assert_eq!((g.title.as_str(), g.year.as_str()), ("Bohemian Rhapsody", "1975"));
+        assert_eq!(
+            (g.title.as_str(), g.year.as_str()),
+            ("Bohemian Rhapsody", "1975")
+        );
         let g = guess_from_filename("Queen - Bohemian Rhapsody.flac");
-        assert_eq!((g.artist.as_str(), g.title.as_str()), ("Queen", "Bohemian Rhapsody"));
+        assert_eq!(
+            (g.artist.as_str(), g.title.as_str()),
+            ("Queen", "Bohemian Rhapsody")
+        );
         let g = guess_from_filename("Queen_Bohemian.mp3");
         assert_eq!((g.artist.as_str(), g.title.as_str()), ("Queen", "Bohemian"));
         let g = guess_from_filename("solo titolo.mp3");

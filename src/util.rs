@@ -7,7 +7,9 @@ pub fn sanitize_filename(value: &str) -> String {
     let cleaned: String = value
         .trim()
         .chars()
-        .filter(|c| !matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') && !c.is_control())
+        .filter(|c| {
+            !matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') && !c.is_control()
+        })
         .map(|c| match c {
             '\u{2019}' => '\'',
             '\u{201c}' | '\u{201d}' => '"',
@@ -19,7 +21,9 @@ pub fn sanitize_filename(value: &str) -> String {
     // Reserved Windows device names would make the rename fail.
     let upper = trimmed.to_ascii_uppercase();
     let reserved = matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || (upper.len() == 4 && (upper.starts_with("COM") || upper.starts_with("LPT")) && upper.ends_with(|c: char| c.is_ascii_digit()));
+        || (upper.len() == 4
+            && (upper.starts_with("COM") || upper.starts_with("LPT"))
+            && upper.ends_with(|c: char| c.is_ascii_digit()));
     if trimmed.is_empty() || reserved {
         "audio".to_string()
     } else {
@@ -30,7 +34,11 @@ pub fn sanitize_filename(value: &str) -> String {
 /// A path in `folder` that does not exist yet: `name.ext`, `name_1.ext`, `name_2.ext`, …
 pub fn unique_path(folder: &Path, stem: &str, ext: &str) -> PathBuf {
     let make = |n: u32| {
-        let name = if n == 0 { stem.to_string() } else { format!("{stem}_{n}") };
+        let name = if n == 0 {
+            stem.to_string()
+        } else {
+            format!("{stem}_{n}")
+        };
         if ext.is_empty() {
             folder.join(name)
         } else {
@@ -56,12 +64,20 @@ pub fn open_folder(path: &Path) -> Result<(), String> {
     } else {
         "xdg-open"
     };
-    std::process::Command::new(program).arg(path).spawn().map(|_| ()).map_err(|e| e.to_string())
+    std::process::Command::new(program)
+        .arg(path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 /// `seconds` as `h:mm:ss` or `m:ss`.
 pub fn clock(seconds: f64) -> String {
-    let s = if seconds.is_finite() && seconds > 0.0 { seconds as u64 } else { 0 };
+    let s = if seconds.is_finite() && seconds > 0.0 {
+        seconds as u64
+    } else {
+        0
+    };
     let (h, m, sec) = (s / 3600, (s / 60) % 60, s % 60);
     if h > 0 {
         format!("{h}:{m:02}:{sec:02}")
@@ -76,7 +92,10 @@ mod tests {
 
     #[test]
     fn sanitizes_names() {
-        assert_eq!(sanitize_filename("AC/DC: Back  In Black?"), "ACDC Back In Black");
+        assert_eq!(
+            sanitize_filename("AC/DC: Back  In Black?"),
+            "ACDC Back In Black"
+        );
         assert_eq!(sanitize_filename("  ...  "), "audio");
         assert_eq!(sanitize_filename("CON"), "audio");
         assert_eq!(sanitize_filename("l\u{2019}amore"), "l'amore");

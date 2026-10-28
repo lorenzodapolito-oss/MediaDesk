@@ -74,12 +74,29 @@ fn first_tag(file: &TaggedFile) -> Option<&Tag> {
 
 pub fn read(path: &Path) -> Result<AudioInfo, String> {
     let file = open(path)?;
-    let mut info = AudioInfo { duration_secs: file.properties().duration().as_secs_f64(), ..Default::default() };
-    let Some(tag) = first_tag(&file) else { return Ok(info) };
-    info.title = tag.title().map(|s| s.trim().to_string()).unwrap_or_default();
-    info.artist = tag.artist().map(|s| s.trim().to_string()).unwrap_or_default();
-    info.album = tag.album().map(|s| s.trim().to_string()).unwrap_or_default();
-    info.genre = tag.genre().map(|s| s.trim().to_string()).unwrap_or_default();
+    let mut info = AudioInfo {
+        duration_secs: file.properties().duration().as_secs_f64(),
+        ..Default::default()
+    };
+    let Some(tag) = first_tag(&file) else {
+        return Ok(info);
+    };
+    info.title = tag
+        .title()
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    info.artist = tag
+        .artist()
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    info.album = tag
+        .album()
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    info.genre = tag
+        .genre()
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
     info.year = tag
         .get_string(ItemKey::Year)
         .or_else(|| tag.get_string(ItemKey::RecordingDate))
@@ -131,26 +148,40 @@ pub fn write(path: &Path, edit: &TagEdit) -> Result<(), String> {
         tag.remove_key(ItemKey::Lyrics);
         if !l.trim().is_empty() {
             // ID3v2 only has the unsynchronised kind; the others take either
-            let _ = tag.insert_text(ItemKey::UnsyncLyrics, l.clone()) || tag.insert_text(ItemKey::Lyrics, l.clone());
+            let _ = tag.insert_text(ItemKey::UnsyncLyrics, l.clone())
+                || tag.insert_text(ItemKey::Lyrics, l.clone());
         }
     }
     if let Some(data) = &edit.cover {
         tag.remove_picture_type(PictureType::CoverFront);
-        let pic = Picture::unchecked(data.clone()).pic_type(PictureType::CoverFront).mime_type(image_mime(data)).build();
+        let pic = Picture::unchecked(data.clone())
+            .pic_type(PictureType::CoverFront)
+            .mime_type(image_mime(data))
+            .build();
         tag.push_picture(pic);
     }
     if let Some(r) = edit.rating {
         tag.remove_key(ItemKey::Popularimeter);
         if let Some(s) = star_rating(r.min(5)) {
-            tag.insert_text(ItemKey::Popularimeter, Popularimeter::custom(RATING_EMAIL, s, 0).to_string());
+            tag.insert_text(
+                ItemKey::Popularimeter,
+                Popularimeter::custom(RATING_EMAIL, s, 0).to_string(),
+            );
         }
     }
-    file.save_to_path(path, WriteOptions::default()).map_err(|e| e.to_string())
+    file.save_to_path(path, WriteOptions::default())
+        .map_err(|e| e.to_string())
 }
 
 /// Stars only (0–5), keeping every other tag as it is.
 pub fn write_rating(path: &Path, stars: u8) -> Result<(), String> {
-    write(path, &TagEdit { rating: Some(stars), ..Default::default() })
+    write(
+        path,
+        &TagEdit {
+            rating: Some(stars),
+            ..Default::default()
+        },
+    )
 }
 
 #[cfg(test)]
@@ -162,8 +193,18 @@ pub(crate) mod tests {
     pub fn make_audio(dir: &Path, name: &str) -> Option<std::path::PathBuf> {
         let ffmpeg = ffmpeg::find_tool("ffmpeg", "")?;
         let out = dir.join(name);
-        let args: Vec<String> =
-            ["-nostdin", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", out.to_str()?].iter().map(|s| s.to_string()).collect();
+        let args: Vec<String> = [
+            "-nostdin",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=1",
+            out.to_str()?,
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
         let r = ffmpeg::run(&ffmpeg, &args, &ffmpeg::new_cancel(), |_| {}).ok()?;
         r.success.then_some(out)
     }
@@ -186,7 +227,9 @@ pub(crate) mod tests {
         };
         let mut tested = 0;
         for name in ["t.mp3", "t.flac", "t.ogg", "t.m4a"] {
-            let Some(p) = make_audio(&dir, name) else { continue };
+            let Some(p) = make_audio(&dir, name) else {
+                continue;
+            };
             let edit = TagEdit {
                 title: "Bohemian Rhapsody".into(),
                 artist: "Queen".into(),
@@ -213,7 +256,11 @@ pub(crate) mod tests {
             // rating change keeps the rest
             write_rating(&p, 1).unwrap();
             let i = read(&p).unwrap();
-            assert_eq!((i.rating, i.title.as_str()), (1, "Bohemian Rhapsody"), "{name}");
+            assert_eq!(
+                (i.rating, i.title.as_str()),
+                (1, "Bohemian Rhapsody"),
+                "{name}"
+            );
             write_rating(&p, 0).unwrap();
             assert_eq!(read(&p).unwrap().rating, 0, "{name}");
             tested += 1;

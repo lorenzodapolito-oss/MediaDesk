@@ -1,0 +1,10 @@
+MediaDesk portable mode
+
+While this file sits next to the program (MediaDesk.exe), MediaDesk keeps its settings in the
+MediaDeskData folder beside it and writes nothing to %APPDATA%. Copy the whole folder to move
+MediaDesk with its settings.
+
+Delete this file to use %APPDATA%\MediaDesk instead.
+
+ffmpeg.exe and ffprobe.exe: put them in this folder (or in a "ffmpeg" or "bin" subfolder) and
+MediaDesk finds them on its own; otherwise it looks in the PATH, or set the folder in Impostazioni.

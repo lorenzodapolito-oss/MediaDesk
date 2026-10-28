@@ -21,16 +21,23 @@ mod imp {
 
     impl Playback {
         pub fn start(path: &Path, from: Duration) -> Result<Self, String> {
-            let sink = DeviceSinkBuilder::open_default_sink().map_err(|e| format!("audio device: {e}"))?;
+            let sink =
+                DeviceSinkBuilder::open_default_sink().map_err(|e| format!("audio device: {e}"))?;
             let player = Player::connect_new(sink.mixer());
             let file = File::open(path).map_err(|e| e.to_string())?;
-            let decoder = Decoder::try_from(file).map_err(|e| format!("{}: {e}", path.display()))?;
+            let decoder =
+                Decoder::try_from(file).map_err(|e| format!("{}: {e}", path.display()))?;
             player.append(decoder);
             let mut base = Duration::ZERO;
             if from > Duration::ZERO && player.try_seek(from).is_ok() {
                 base = Duration::ZERO;
             }
-            Ok(Self { _sink: sink, player, file: path.to_path_buf(), base })
+            Ok(Self {
+                _sink: sink,
+                player,
+                file: path.to_path_buf(),
+                base,
+            })
         }
         pub fn file(&self) -> &Path {
             &self.file
@@ -109,9 +116,18 @@ mod tests {
     #[test]
     fn seek_is_clamped() {
         let l = Some(Duration::from_secs(100));
-        assert_eq!(seek_target(Duration::from_secs(10), 30.0, l), Duration::from_secs(40));
-        assert_eq!(seek_target(Duration::from_secs(10), -30.0, l), Duration::ZERO);
+        assert_eq!(
+            seek_target(Duration::from_secs(10), 30.0, l),
+            Duration::from_secs(40)
+        );
+        assert_eq!(
+            seek_target(Duration::from_secs(10), -30.0, l),
+            Duration::ZERO
+        );
         assert!(seek_target(Duration::from_secs(90), 30.0, l) < Duration::from_secs(100));
-        assert_eq!(seek_target(Duration::from_secs(5), f64::NAN, None), Duration::ZERO);
+        assert_eq!(
+            seek_target(Duration::from_secs(5), f64::NAN, None),
+            Duration::ZERO
+        );
     }
 }

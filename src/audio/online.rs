@@ -48,16 +48,24 @@ pub fn similar(a: &str, b: &str) -> f64 {
 }
 
 fn s(v: &Value, key: &str) -> String {
-    v.get(key).and_then(Value::as_str).unwrap_or("").trim().to_string()
+    v.get(key)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string()
 }
 
 /// Best MusicBrainz recording with score ≥ `min_score`.
-pub fn parse_musicbrainz(json: &Value, min_score: u32, fallback_artist: &str, fallback_title: &str) -> Option<Candidate> {
-    let rec = json
-        .get("recordings")?
-        .as_array()?
-        .iter()
-        .find(|r| r.get("score").and_then(Value::as_u64).unwrap_or(0) >= u64::from(min_score))?;
+pub fn parse_musicbrainz(
+    json: &Value,
+    min_score: u32,
+    fallback_artist: &str,
+    fallback_title: &str,
+) -> Option<Candidate> {
+    let rec =
+        json.get("recordings")?.as_array()?.iter().find(|r| {
+            r.get("score").and_then(Value::as_u64).unwrap_or(0) >= u64::from(min_score)
+        })?;
     let artist = {
         let phrase = s(rec, "artist-credit-phrase");
         if !phrase.is_empty() {
@@ -86,8 +94,17 @@ pub fn parse_musicbrainz(json: &Value, min_score: u32, fallback_artist: &str, fa
             t
         }
     };
-    let mut c = Candidate { source: "MusicBrainz".into(), title, artist, ..Default::default() };
-    if let Some(rel) = rec.get("releases").and_then(Value::as_array).and_then(|r| r.first()) {
+    let mut c = Candidate {
+        source: "MusicBrainz".into(),
+        title,
+        artist,
+        ..Default::default()
+    };
+    if let Some(rel) = rec
+        .get("releases")
+        .and_then(Value::as_array)
+        .and_then(|r| r.first())
+    {
         c.album = s(rel, "title");
         c.mb_release_id = s(rel, "id");
         c.year = s(rel, "date").chars().take(4).collect();
@@ -98,8 +115,11 @@ pub fn parse_musicbrainz(json: &Value, min_score: u32, fallback_artist: &str, fa
 /// Best iTunes result by similarity to the wanted artist and title.
 pub fn parse_itunes(json: &Value, artist: &str, title: &str) -> Option<Candidate> {
     let best = json.get("results")?.as_array()?.iter().max_by(|a, b| {
-        let sc = |x: &Value| similar(&s(x, "artistName"), artist) + similar(&s(x, "trackName"), title);
-        sc(a).partial_cmp(&sc(b)).unwrap_or(std::cmp::Ordering::Equal)
+        let sc =
+            |x: &Value| similar(&s(x, "artistName"), artist) + similar(&s(x, "trackName"), title);
+        sc(a)
+            .partial_cmp(&sc(b))
+            .unwrap_or(std::cmp::Ordering::Equal)
     })?;
     Some(Candidate {
         source: "iTunes".into(),
@@ -116,8 +136,15 @@ pub fn parse_itunes(json: &Value, artist: &str, title: &str) -> Option<Candidate
 /// Best Deezer result by similarity.
 pub fn parse_deezer(json: &Value, artist: &str, title: &str) -> Option<Candidate> {
     let best = json.get("data")?.as_array()?.iter().max_by(|a, b| {
-        let sc = |x: &Value| similar(&x.get("artist").map(|a| s(a, "name")).unwrap_or_default(), artist) + similar(&s(x, "title"), title);
-        sc(a).partial_cmp(&sc(b)).unwrap_or(std::cmp::Ordering::Equal)
+        let sc = |x: &Value| {
+            similar(
+                &x.get("artist").map(|a| s(a, "name")).unwrap_or_default(),
+                artist,
+            ) + similar(&s(x, "title"), title)
+        };
+        sc(a)
+            .partial_cmp(&sc(b))
+            .unwrap_or(std::cmp::Ordering::Equal)
     })?;
     let album = best.get("album").cloned().unwrap_or(Value::Null);
     let cover = {
@@ -150,7 +177,9 @@ pub fn merge(found: &Identified) -> Candidate {
     let mut out = Candidate::default();
     let mut used: Vec<&str> = Vec::new();
     for source in ["MusicBrainz", "Deezer", "iTunes"] {
-        let Some(c) = found.candidates.iter().find(|c| c.source == source) else { continue };
+        let Some(c) = found.candidates.iter().find(|c| c.source == source) else {
+            continue;
+        };
         let mut took = false;
         macro_rules! fill {
             ($f:ident) => {
@@ -175,12 +204,21 @@ pub fn merge(found: &Identified) -> Candidate {
         }
     }
     let g = &found.guess;
-    for (field, value) in [(&mut out.title, &g.title), (&mut out.artist, &g.artist), (&mut out.album, &g.album), (&mut out.year, &g.year)] {
+    for (field, value) in [
+        (&mut out.title, &g.title),
+        (&mut out.artist, &g.artist),
+        (&mut out.album, &g.album),
+        (&mut out.year, &g.year),
+    ] {
         if field.is_empty() {
             *field = value.clone();
         }
     }
-    out.source = if used.is_empty() { "File name".into() } else { used.join(" + ") };
+    out.source = if used.is_empty() {
+        "File name".into()
+    } else {
+        used.join(" + ")
+    };
     out
 }
 
@@ -211,7 +249,11 @@ impl Client {
             .user_agent(user_agent.to_string())
             .build()
             .into();
-        Self { agent, mb_last: None, min_score }
+        Self {
+            agent,
+            mb_last: None,
+            min_score,
+        }
     }
 
     fn json(&self, url: &str, query: &[(&str, &str)]) -> Option<Value> {
@@ -223,7 +265,16 @@ impl Client {
     }
 
     fn bytes(&self, url: &str) -> Option<Vec<u8>> {
-        let data = self.agent.get(url).call().ok()?.body_mut().with_config().limit(15 * 1024 * 1024).read_to_vec().ok()?;
+        let data = self
+            .agent
+            .get(url)
+            .call()
+            .ok()?
+            .body_mut()
+            .with_config()
+            .limit(15 * 1024 * 1024)
+            .read_to_vec()
+            .ok()?;
         (!data.is_empty()).then_some(data)
     }
 
@@ -243,8 +294,15 @@ impl Client {
         }
         self.mb_wait();
         let clean = |x: &str| x.replace('"', "").trim().to_string();
-        let query = format!("artist:\"{}\" AND recording:\"{}\"", clean(artist), clean(title));
-        let json = self.json("https://musicbrainz.org/ws/2/recording/", &[("query", &query), ("fmt", "json"), ("limit", "5")])?;
+        let query = format!(
+            "artist:\"{}\" AND recording:\"{}\"",
+            clean(artist),
+            clean(title)
+        );
+        let json = self.json(
+            "https://musicbrainz.org/ws/2/recording/",
+            &[("query", &query), ("fmt", "json"), ("limit", "5")],
+        )?;
         parse_musicbrainz(&json, self.min_score, artist, title)
     }
 
@@ -253,7 +311,15 @@ impl Client {
         if term.trim().is_empty() {
             return None;
         }
-        let json = self.json("https://itunes.apple.com/search", &[("term", term.trim()), ("media", "music"), ("entity", "song"), ("limit", "5")])?;
+        let json = self.json(
+            "https://itunes.apple.com/search",
+            &[
+                ("term", term.trim()),
+                ("media", "music"),
+                ("entity", "song"),
+                ("limit", "5"),
+            ],
+        )?;
         parse_itunes(&json, artist, title)
     }
 
@@ -268,14 +334,20 @@ impl Client {
         } else {
             format!("artist:\"{artist}\" track:\"{title}\"")
         };
-        let json = self.json("https://api.deezer.com/search", &[("q", &term), ("limit", "5")])?;
+        let json = self.json(
+            "https://api.deezer.com/search",
+            &[("q", &term), ("limit", "5")],
+        )?;
         parse_deezer(&json, artist, title)
     }
 
     /// Cover from the Cover Art Archive, else from the source's own artwork URL.
     pub fn cover(&self, c: &Candidate) -> Option<Vec<u8>> {
         if !c.mb_release_id.is_empty() {
-            if let Some(d) = self.bytes(&format!("https://coverartarchive.org/release/{}/front", c.mb_release_id)) {
+            if let Some(d) = self.bytes(&format!(
+                "https://coverartarchive.org/release/{}/front",
+                c.mb_release_id
+            )) {
                 return Some(d);
             }
         }
@@ -290,14 +362,23 @@ impl Client {
         if artist.trim().is_empty() || title.trim().is_empty() {
             return None;
         }
-        let url = format!("https://api.lyrics.ovh/v1/{}/{}", encode_segment(artist), encode_segment(title));
+        let url = format!(
+            "https://api.lyrics.ovh/v1/{}/{}",
+            encode_segment(artist),
+            encode_segment(title)
+        );
         let json = self.json(&url, &[])?;
         let l = s(&json, "lyrics");
         (!l.is_empty()).then_some(l)
     }
 
     /// Asks every source (reporting progress through `status`), covers included when asked.
-    pub fn identify(&mut self, file_name: &str, with_covers: bool, mut status: impl FnMut(&str)) -> Identified {
+    pub fn identify(
+        &mut self,
+        file_name: &str,
+        with_covers: bool,
+        mut status: impl FnMut(&str),
+    ) -> Identified {
         let guess = guess_from_filename(file_name);
         let mut candidates = Vec::new();
         status("MusicBrainz…");
@@ -344,7 +425,22 @@ mod tests {
             {"score": 98, "title": "Bohemian Rhapsody", "artist-credit-phrase": "Queen",
              "releases":[{"id":"abc","title":"A Night at the Opera","date":"1975-11-21"}]}]});
         let c = parse_musicbrainz(&j, 75, "", "").unwrap();
-        assert_eq!((c.title.as_str(), c.artist.as_str(), c.album.as_str(), c.year.as_str(), c.mb_release_id.as_str()), ("Bohemian Rhapsody", "Queen", "A Night at the Opera", "1975", "abc"));
+        assert_eq!(
+            (
+                c.title.as_str(),
+                c.artist.as_str(),
+                c.album.as_str(),
+                c.year.as_str(),
+                c.mb_release_id.as_str()
+            ),
+            (
+                "Bohemian Rhapsody",
+                "Queen",
+                "A Night at the Opera",
+                "1975",
+                "abc"
+            )
+        );
         assert!(parse_musicbrainz(&j, 99, "", "").is_none());
         assert!(parse_musicbrainz(&json!({}), 75, "", "").is_none());
         // artist from the credit list when there is no phrase
@@ -358,26 +454,55 @@ mod tests {
             {"artistName":"Other","trackName":"Other song"},
             {"artistName":"Queen","trackName":"Bohemian Rhapsody","collectionName":"Opera","primaryGenreName":"Rock","releaseDate":"1975-10-31T08:00:00Z","artworkUrl100":"http://x/100x100bb.jpg"}]});
         let c = parse_itunes(&j, "Queen", "Bohemian Rhapsody").unwrap();
-        assert_eq!((c.genre.as_str(), c.year.as_str(), c.cover_url.as_str()), ("Rock", "1975", "http://x/600x600bb.jpg"));
+        assert_eq!(
+            (c.genre.as_str(), c.year.as_str(), c.cover_url.as_str()),
+            ("Rock", "1975", "http://x/600x600bb.jpg")
+        );
         let j = json!({"data":[
             {"title":"Nope","artist":{"name":"Nobody"}},
             {"title":"Bohemian Rhapsody","artist":{"name":"Queen"},"album":{"title":"Opera","cover_big":"http://c/big.jpg"}}]});
         let c = parse_deezer(&j, "Queen", "Bohemian Rhapsody").unwrap();
-        assert_eq!((c.album.as_str(), c.cover_url.as_str()), ("Opera", "http://c/big.jpg"));
+        assert_eq!(
+            (c.album.as_str(), c.cover_url.as_str()),
+            ("Opera", "http://c/big.jpg")
+        );
         assert!(parse_deezer(&json!({"data":[]}), "a", "b").is_none());
     }
 
     #[test]
     fn merge_prefers_musicbrainz_then_fills_from_others_and_the_file_name() {
         let found = Identified {
-            guess: Guess { artist: "Queen".into(), title: "Bohemian".into(), year: "1975".into(), ..Default::default() },
+            guess: Guess {
+                artist: "Queen".into(),
+                title: "Bohemian".into(),
+                year: "1975".into(),
+                ..Default::default()
+            },
             candidates: vec![
-                Candidate { source: "iTunes".into(), title: "Bohemian Rhapsody (iTunes)".into(), genre: "Rock".into(), ..Default::default() },
-                Candidate { source: "MusicBrainz".into(), title: "Bohemian Rhapsody".into(), artist: "Queen".into(), ..Default::default() },
+                Candidate {
+                    source: "iTunes".into(),
+                    title: "Bohemian Rhapsody (iTunes)".into(),
+                    genre: "Rock".into(),
+                    ..Default::default()
+                },
+                Candidate {
+                    source: "MusicBrainz".into(),
+                    title: "Bohemian Rhapsody".into(),
+                    artist: "Queen".into(),
+                    ..Default::default()
+                },
             ],
         };
         let m = merge(&found);
-        assert_eq!((m.title.as_str(), m.genre.as_str(), m.year.as_str(), m.source.as_str()), ("Bohemian Rhapsody", "Rock", "1975", "MusicBrainz + iTunes"));
+        assert_eq!(
+            (
+                m.title.as_str(),
+                m.genre.as_str(),
+                m.year.as_str(),
+                m.source.as_str()
+            ),
+            ("Bohemian Rhapsody", "Rock", "1975", "MusicBrainz + iTunes")
+        );
         assert_eq!(merge(&Identified::default()).source, "File name");
     }
 

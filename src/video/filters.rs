@@ -20,7 +20,15 @@ pub struct Color {
 
 impl Default for Color {
     fn default() -> Self {
-        Self { enabled: false, brightness: 0.0, contrast: 1.0, saturation: 1.0, gamma: 1.0, temperature: 0, hue: 0.0 }
+        Self {
+            enabled: false,
+            brightness: 0.0,
+            contrast: 1.0,
+            saturation: 1.0,
+            gamma: 1.0,
+            temperature: 0,
+            hue: 0.0,
+        }
     }
 }
 
@@ -48,12 +56,23 @@ impl Crop {
         };
         let (left, right) = side(self.left, self.right, w);
         let (top, bottom) = side(self.top, self.bottom, h);
-        Crop { left, right, top, bottom }
+        Crop {
+            left,
+            right,
+            top,
+            bottom,
+        }
     }
 
     /// From a `cropdetect` result `w:h:x:y` in a `src_w`×`src_h` frame.
     pub fn from_detect(w: u32, h: u32, x: u32, y: u32, src_w: u32, src_h: u32) -> Crop {
-        Crop { left: x, top: y, right: src_w.saturating_sub(w).saturating_sub(x), bottom: src_h.saturating_sub(h).saturating_sub(y) }.clamped(src_w, src_h)
+        Crop {
+            left: x,
+            top: y,
+            right: src_w.saturating_sub(w).saturating_sub(x),
+            bottom: src_h.saturating_sub(h).saturating_sub(y),
+        }
+        .clamped(src_w, src_h)
     }
 }
 
@@ -92,7 +111,12 @@ pub fn color_filter(c: &Color) -> String {
 
 /// Escapes a file path for use inside `subtitles='…'`.
 pub fn escape_filter_path(path: &str) -> String {
-    path.replace('\\', "/").replace(':', "\\:").replace('\'', "\\'").replace(',', "\\,").replace('[', "\\[").replace(']', "\\]")
+    path.replace('\\', "/")
+        .replace(':', "\\:")
+        .replace('\'', "\\'")
+        .replace(',', "\\,")
+        .replace('[', "\\[")
+        .replace(']', "\\]")
 }
 
 /// The whole `-vf` chain: crop → scale (max 1280 wide) → colour → burnt-in subtitles → yuv420p.
@@ -129,23 +153,59 @@ mod tests {
     #[test]
     fn colour_filter_only_lists_what_changed() {
         assert_eq!(color_filter(&Color::default()), "");
-        let c = Color { enabled: true, ..Default::default() };
+        let c = Color {
+            enabled: true,
+            ..Default::default()
+        };
         assert_eq!(color_filter(&c), "");
-        let c = Color { enabled: true, brightness: 0.1, saturation: 1.5, temperature: 50, hue: 10.0, ..Default::default() };
-        assert_eq!(color_filter(&c), "colorbalance=rs=0.050:bs=-0.050,eq=brightness=0.10:saturation=1.50,hue=h=10.0");
-        let off = Color { enabled: false, brightness: 0.5, ..Default::default() };
+        let c = Color {
+            enabled: true,
+            brightness: 0.1,
+            saturation: 1.5,
+            temperature: 50,
+            hue: 10.0,
+            ..Default::default()
+        };
+        assert_eq!(
+            color_filter(&c),
+            "colorbalance=rs=0.050:bs=-0.050,eq=brightness=0.10:saturation=1.50,hue=h=10.0"
+        );
+        let off = Color {
+            enabled: false,
+            brightness: 0.5,
+            ..Default::default()
+        };
         assert_eq!(color_filter(&off), "");
         // out-of-range values are clamped, NaN does not panic
-        let wild = Color { enabled: true, contrast: 9.0, hue: f64::NAN, ..Default::default() };
+        let wild = Color {
+            enabled: true,
+            contrast: 9.0,
+            hue: f64::NAN,
+            ..Default::default()
+        };
         assert!(color_filter(&wild).contains("contrast=2.00"));
     }
 
     #[test]
     fn crop_is_clamped_and_detected() {
-        let c = Crop { left: 2000, right: 2000, top: 0, bottom: 5000 }.clamped(1920, 1080);
+        let c = Crop {
+            left: 2000,
+            right: 2000,
+            top: 0,
+            bottom: 5000,
+        }
+        .clamped(1920, 1080);
         assert!(c.left + c.right <= 1920 - 16 && c.top + c.bottom <= 1080 - 16);
         let d = Crop::from_detect(1920, 800, 0, 140, 1920, 1080);
-        assert_eq!(d, Crop { left: 0, right: 0, top: 140, bottom: 140 });
+        assert_eq!(
+            d,
+            Crop {
+                left: 0,
+                right: 0,
+                top: 140,
+                bottom: 140
+            }
+        );
         // detection bigger than the frame never underflows
         let d = Crop::from_detect(4000, 4000, 10, 10, 1920, 1080);
         assert_eq!((d.right, d.bottom), (0, 0));
@@ -155,9 +215,25 @@ mod tests {
     fn chain_order_and_escaping() {
         let vf = video_filter(None, &Color::default(), None);
         assert_eq!(vf, "scale='min(1280,iw)':-2,format=yuv420p");
-        let crop = Crop { left: 0, right: 0, top: 140, bottom: 140 };
-        let vf = video_filter(Some(crop), &Color { enabled: true, gamma: 1.2, ..Default::default() }, Some(("C:\\v\\a [1].mkv", 0)));
-        let order: Vec<usize> = ["crop=", "scale=", "eq=", "subtitles=", "format="].iter().map(|k| vf.find(k).unwrap()).collect();
+        let crop = Crop {
+            left: 0,
+            right: 0,
+            top: 140,
+            bottom: 140,
+        };
+        let vf = video_filter(
+            Some(crop),
+            &Color {
+                enabled: true,
+                gamma: 1.2,
+                ..Default::default()
+            },
+            Some(("C:\\v\\a [1].mkv", 0)),
+        );
+        let order: Vec<usize> = ["crop=", "scale=", "eq=", "subtitles=", "format="]
+            .iter()
+            .map(|k| vf.find(k).unwrap())
+            .collect();
         assert!(order.windows(2).all(|w| w[0] < w[1]), "{vf}");
         assert!(vf.contains("C\\:/v/a \\[1\\].mkv"), "{vf}");
     }

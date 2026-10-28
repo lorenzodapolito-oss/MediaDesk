@@ -13,6 +13,8 @@ pub struct Settings {
     pub ffmpeg_path: String,
     pub musicbrainz_agent: String,
     pub mb_min_score: u32,
+    /// The tab shown last ("audio" or "video").
+    pub tab: String,
 }
 
 impl Default for Settings {
@@ -24,6 +26,7 @@ impl Default for Settings {
             ffmpeg_path: String::new(),
             musicbrainz_agent: "MediaDesk/0.1 (https://github.com/lorenzodapolito-oss)".into(),
             mb_min_score: 75,
+            tab: "audio".into(),
         }
     }
 }

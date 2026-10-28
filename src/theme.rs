@@ -34,5 +34,9 @@ pub fn apply(ctx: &egui::Context) {
 
 /// A filled button in one of the palette colours.
 pub fn button(ui: &mut egui::Ui, text: &str, fill: Color32) -> egui::Response {
-    ui.add(egui::Button::new(egui::RichText::new(text).color(Color32::WHITE).strong()).fill(fill).corner_radius(8.0))
+    ui.add(
+        egui::Button::new(egui::RichText::new(text).color(Color32::WHITE).strong())
+            .fill(fill)
+            .corner_radius(8.0),
+    )
 }

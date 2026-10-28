@@ -3,7 +3,13 @@
 use serde_json::Value;
 
 /// Subtitle codecs that are pictures: they cannot be burnt in with the `subtitles` filter.
-pub const IMAGE_SUB_CODECS: [&str; 5] = ["hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle", "xsub", "vobsub"];
+pub const IMAGE_SUB_CODECS: [&str; 5] = [
+    "hdmv_pgs_subtitle",
+    "dvd_subtitle",
+    "dvb_subtitle",
+    "xsub",
+    "vobsub",
+];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AudioStream {
@@ -38,15 +44,37 @@ pub struct Probe {
 
 impl AudioStream {
     pub fn label(&self) -> String {
-        let ch = if self.channels > 0 { format!(" {}ch", self.channels) } else { String::new() };
-        format!("#{} ({}) {} [{}{}]", self.index, self.lang.to_uppercase(), self.title, self.codec.to_uppercase(), ch)
+        let ch = if self.channels > 0 {
+            format!(" {}ch", self.channels)
+        } else {
+            String::new()
+        };
+        format!(
+            "#{} ({}) {} [{}{}]",
+            self.index,
+            self.lang.to_uppercase(),
+            self.title,
+            self.codec.to_uppercase(),
+            ch
+        )
     }
 }
 
 impl SubStream {
     pub fn label(&self) -> String {
-        let kind = if self.is_text { "text" } else { "image: no hardsub" };
-        format!("#{} ({}) {} [{} – {}]", self.index, self.lang.to_uppercase(), self.title, self.codec.to_uppercase(), kind)
+        let kind = if self.is_text {
+            "text"
+        } else {
+            "image: no hardsub"
+        };
+        format!(
+            "#{} ({}) {} [{} – {}]",
+            self.index,
+            self.lang.to_uppercase(),
+            self.title,
+            self.codec.to_uppercase(),
+            kind
+        )
     }
 }
 
@@ -62,14 +90,34 @@ pub fn args(path: &std::path::Path) -> Vec<String> {
 /// Parses ffprobe's JSON (tolerating text around it).
 pub fn parse(output: &str) -> Result<Probe, String> {
     let (start, end) = (output.find('{'), output.rfind('}'));
-    let (Some(a), Some(b)) = (start, end) else { return Err("no JSON in ffprobe output".into()) };
-    let v: Value = serde_json::from_str(output.get(a..=b).unwrap_or("")).map_err(|e| e.to_string())?;
-    let mut p = Probe::default();
-    p.duration = v.pointer("/format/duration").and_then(Value::as_str).and_then(|d| d.parse().ok()).unwrap_or(0.0);
+    let (Some(a), Some(b)) = (start, end) else {
+        return Err("no JSON in ffprobe output".into());
+    };
+    let v: Value =
+        serde_json::from_str(output.get(a..=b).unwrap_or("")).map_err(|e| e.to_string())?;
+    let duration = v
+        .pointer("/format/duration")
+        .and_then(Value::as_str)
+        .and_then(|d| d.parse().ok())
+        .unwrap_or(0.0);
+    let mut p = Probe {
+        duration,
+        ..Default::default()
+    };
     let (mut a_order, mut s_order) = (0usize, 0usize);
-    for st in v.get("streams").and_then(Value::as_array).into_iter().flatten() {
+    for st in v
+        .get("streams")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         let text = |k: &str| st.get(k).and_then(Value::as_str).unwrap_or("").to_string();
-        let tag = |k: &str| st.pointer(&format!("/tags/{k}")).and_then(Value::as_str).unwrap_or("").to_string();
+        let tag = |k: &str| {
+            st.pointer(&format!("/tags/{k}"))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        };
         let index = st.get("index").and_then(Value::as_u64).unwrap_or(0);
         let codec = {
             let c = text("codec_name");
@@ -93,12 +141,26 @@ pub fn parse(output: &str) -> Result<Probe, String> {
                 p.height = st.get("height").and_then(Value::as_u64).unwrap_or(0) as u32;
             }
             "audio" => {
-                p.audio.push(AudioStream { order: a_order, index, lang, title: tag("title"), channels: st.get("channels").and_then(Value::as_u64).unwrap_or(0), codec });
+                p.audio.push(AudioStream {
+                    order: a_order,
+                    index,
+                    lang,
+                    title: tag("title"),
+                    channels: st.get("channels").and_then(Value::as_u64).unwrap_or(0),
+                    codec,
+                });
                 a_order += 1;
             }
             "subtitle" => {
                 let is_text = !IMAGE_SUB_CODECS.contains(&codec.as_str());
-                p.subs.push(SubStream { order: s_order, index, lang, title: tag("title"), codec, is_text });
+                p.subs.push(SubStream {
+                    order: s_order,
+                    index,
+                    lang,
+                    title: tag("title"),
+                    codec,
+                    is_text,
+                });
                 s_order += 1;
             }
             _ => {}
@@ -135,7 +197,10 @@ mod tests {
         let p = parse(&format!("warning\n{SAMPLE}\n")).unwrap();
         assert_eq!((p.width, p.height, p.duration), (1920, 1080, 125.5));
         assert_eq!(p.audio.len(), 2);
-        assert_eq!((p.audio[1].order, p.audio[1].index, p.audio[1].lang.as_str()), (1, 2, "eng"));
+        assert_eq!(
+            (p.audio[1].order, p.audio[1].index, p.audio[1].lang.as_str()),
+            (1, 2, "eng")
+        );
         assert_eq!((p.subs[0].order, p.subs[0].is_text), (0, true));
         assert_eq!((p.subs[1].order, p.subs[1].is_text), (1, false));
         assert!(p.audio[0].label().contains("6ch"));

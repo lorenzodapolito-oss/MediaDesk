@@ -57,7 +57,11 @@ pub fn find_tool(tool: &str, configured: &str) -> Option<PathBuf> {
         if p.is_dir() {
             candidates.push(p.join(&name));
             candidates.push(p.join("bin").join(&name));
-        } else if p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.eq_ignore_ascii_case(&exe_name("ffmpeg"))) {
+        } else if p
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.eq_ignore_ascii_case(&exe_name("ffmpeg")))
+        {
             // a path to ffmpeg also serves for ffprobe, which sits beside it
             if let Some(dir) = p.parent() {
                 candidates.push(dir.join(&name));
@@ -79,7 +83,11 @@ pub fn find_tool(tool: &str, configured: &str) -> Option<PathBuf> {
         }
     }
     if cfg!(windows) {
-        for base in ["C:/ffmpeg/bin", "C:/Program Files/ffmpeg/bin", "C:/Program Files (x86)/ffmpeg/bin"] {
+        for base in [
+            "C:/ffmpeg/bin",
+            "C:/Program Files/ffmpeg/bin",
+            "C:/Program Files (x86)/ffmpeg/bin",
+        ] {
             candidates.push(Path::new(base).join(&name));
         }
     } else {
@@ -87,8 +95,14 @@ pub fn find_tool(tool: &str, configured: &str) -> Option<PathBuf> {
             candidates.push(Path::new(base).join(&name));
         }
     }
-    let flag = if tool == "ffprobe" || tool == "ffmpeg" { "-version" } else { "--version" };
-    candidates.into_iter().find(|p| p.is_file() && works(p, flag))
+    let flag = if tool == "ffprobe" || tool == "ffmpeg" {
+        "-version"
+    } else {
+        "--version"
+    };
+    candidates
+        .into_iter()
+        .find(|p| p.is_file() && works(p, flag))
 }
 
 /// Result of a finished process.
@@ -113,7 +127,12 @@ pub fn parse_progress_seconds(line: &str) -> Option<f64> {
 
 /// Runs `program args…`, calling `on_progress(seconds)` as `-progress pipe:1` reports time.
 /// Stops (kills the process) as soon as `cancel` is set.
-pub fn run(program: &Path, args: &[String], cancel: &Cancel, mut on_progress: impl FnMut(f64)) -> Result<Outcome, String> {
+pub fn run(
+    program: &Path,
+    args: &[String],
+    cancel: &Cancel,
+    mut on_progress: impl FnMut(f64),
+) -> Result<Outcome, String> {
     let mut child = command(program)
         .args(args)
         .stdin(Stdio::null())
@@ -168,11 +187,19 @@ pub fn run(program: &Path, args: &[String], cancel: &Cancel, mut on_progress: im
         on_progress(s);
     }
     let stderr_tail = tail.join().unwrap_or_default();
-    Ok(Outcome { success: status.success() && !cancelled, cancelled, stderr_tail })
+    Ok(Outcome {
+        success: status.success() && !cancelled,
+        cancelled,
+        stderr_tail,
+    })
 }
 
 /// Runs a tool to completion and returns (stdout, stderr), giving up after `timeout`.
-pub fn capture(program: &Path, args: &[String], timeout: Duration) -> Result<(String, String), String> {
+pub fn capture(
+    program: &Path,
+    args: &[String],
+    timeout: Duration,
+) -> Result<(String, String), String> {
     let mut child = command(program)
         .args(args)
         .stdin(Stdio::null())
@@ -211,7 +238,10 @@ pub fn capture(program: &Path, args: &[String], timeout: Duration) -> Result<(St
     }
     let o = t_out.join().unwrap_or_default();
     let e = t_err.join().unwrap_or_default();
-    Ok((String::from_utf8_lossy(&o).into_owned(), String::from_utf8_lossy(&e).into_owned()))
+    Ok((
+        String::from_utf8_lossy(&o).into_owned(),
+        String::from_utf8_lossy(&e).into_owned(),
+    ))
 }
 
 #[cfg(test)]
@@ -230,20 +260,39 @@ mod tests {
 
     #[test]
     fn a_missing_program_is_an_error_not_a_panic() {
-        let r = run(Path::new("/nonexistent/ffmpeg-xyz"), &[], &new_cancel(), |_| {});
+        let r = run(
+            Path::new("/nonexistent/ffmpeg-xyz"),
+            &[],
+            &new_cancel(),
+            |_| {},
+        );
         assert!(r.is_err());
     }
 
     #[test]
     fn cancel_stops_a_running_process() {
-        let Some(ffmpeg) = find_tool("ffmpeg", "") else { return };
+        let Some(ffmpeg) = find_tool("ffmpeg", "") else {
+            return;
+        };
         let cancel = new_cancel();
         let c2 = cancel.clone();
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(300));
             c2.store(true, Ordering::Relaxed);
         });
-        let args: Vec<String> = ["-nostdin", "-f", "lavfi", "-i", "sine=duration=600", "-f", "null", "-"].iter().map(|s| s.to_string()).collect();
+        let args: Vec<String> = [
+            "-nostdin",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=duration=600",
+            "-f",
+            "null",
+            "-",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
         let start = Instant::now();
         let out = run(&ffmpeg, &args, &cancel, |_| {}).unwrap();
         assert!(out.cancelled && !out.success);
