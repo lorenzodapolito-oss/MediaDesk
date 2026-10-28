@@ -633,7 +633,7 @@ impl AudioTab {
                 format!("Conversione interrotta ({ok} completati)")
             } else {
                 format!(
-                    "Conversione finita: {ok} ok, {failed} errori → {}",
+                    "Conversione finita: {ok} ok, {failed} errori: {}",
                     out_dir.display()
                 )
             };

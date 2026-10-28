@@ -119,7 +119,7 @@ pub fn escape_filter_path(path: &str) -> String {
         .replace(']', "\\]")
 }
 
-/// The whole `-vf` chain: crop → scale (max 1280 wide) → colour → burnt-in subtitles → yuv420p.
+/// The whole `-vf` chain: crop → scale to 1280×720 → colour → burnt-in subtitles → yuv420p.
 /// `hardsub` is `(file, subtitle order)`.
 pub fn video_filter(crop: Option<Crop>, color: &Color, hardsub: Option<(&str, usize)>) -> String {
     let mut parts: Vec<String> = Vec::new();
@@ -134,7 +134,10 @@ pub fn video_filter(crop: Option<Crop>, color: &Color, hardsub: Option<(&str, us
         ));
         parts.push("setsar=1".into());
     }
-    parts.push("scale='min(1280,iw)':-2".into());
+    // always 1280x720 (a 16:9 crop fills it; anything else is centred with black bars)
+    parts.push("scale=1280:720:force_original_aspect_ratio=decrease".into());
+    parts.push("pad=1280:720:(ow-iw)/2:(oh-ih)/2".into());
+    parts.push("setsar=1".into());
     let col = color_filter(color);
     if !col.is_empty() {
         parts.push(col);
@@ -214,7 +217,10 @@ mod tests {
     #[test]
     fn chain_order_and_escaping() {
         let vf = video_filter(None, &Color::default(), None);
-        assert_eq!(vf, "scale='min(1280,iw)':-2,format=yuv420p");
+        assert_eq!(
+            vf,
+            "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p"
+        );
         let crop = Crop {
             left: 0,
             right: 0,

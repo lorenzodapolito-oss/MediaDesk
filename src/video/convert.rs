@@ -67,6 +67,18 @@ pub fn output_path(input: &Path, out_folder: &Path, container: Container) -> Pat
 
 /// The ffmpeg command for one file. `probe` says which soft subtitles can be kept.
 pub fn args(input: &Path, output: &Path, o: &Options, probe: &Probe) -> Vec<String> {
+    args_with_live(input, output, o, probe, None)
+}
+
+/// Like [`args`]; with `live` ffmpeg also writes the frame it is encoding (once per second of
+/// video, 480 px wide) over and over to that JPEG file, so the program can show it.
+pub fn args_with_live(
+    input: &Path,
+    output: &Path,
+    o: &Options,
+    probe: &Probe,
+    live: Option<&Path>,
+) -> Vec<String> {
     let mut a: Vec<String> = [
         "-nostdin",
         "-hide_banner",
@@ -80,7 +92,11 @@ pub fn args(input: &Path, output: &Path, o: &Options, probe: &Probe) -> Vec<Stri
     .map(|s| s.to_string())
     .collect();
     a.push(input.to_string_lossy().into_owned());
-    a.extend(["-map", "0:v:0"].map(String::from));
+    if live.is_some() {
+        a.extend(["-map", "[main]"].map(String::from));
+    } else {
+        a.extend(["-map", "0:v:0"].map(String::from));
+    }
     match o.audio {
         AudioChoice::All => a.extend(["-map", "0:a?"].map(String::from)),
         AudioChoice::Track(n) => a.extend(["-map".to_string(), format!("0:a:{n}")]),
@@ -121,19 +137,65 @@ pub fn args(input: &Path, output: &Path, o: &Options, probe: &Probe) -> Vec<Stri
             "-profile:v",
             "high",
             "-level:v",
-            "4.1",
+            "3.1",
             "-c:a",
             "aac",
             "-b:a",
-            "192k",
-            "-vf",
+            "128k",
+            "-ac",
+            "2",
         ]
         .map(String::from),
     );
-    a.push(vf);
+    if live.is_some() {
+        a.push("-filter_complex".into());
+        a.push(format!(
+            "[0:v:0]{vf},split=2[main][pv];[pv]fps=1,scale=480:-2[pvo]"
+        ));
+    } else {
+        a.push("-vf".into());
+        a.push(vf);
+    }
     a.extend(["-movflags", "+faststart"].map(String::from));
     a.push(output.to_string_lossy().into_owned());
+    if let Some(live) = live {
+        a.extend(
+            [
+                "-map", "[pvo]", "-an", "-sn", "-c:v", "mjpeg", "-q:v", "6", "-f", "image2",
+                "-update", "1",
+            ]
+            .map(String::from),
+        );
+        a.push(live.to_string_lossy().into_owned());
+    }
     a
+}
+
+/// Average x264 video bitrate (kbit/s) for 720p at `crf` with the medium preset: about 1500 at
+/// CRF 23, halving every 6 steps. A rough rule of thumb, not a promise.
+pub fn video_kbps(crf: u32) -> f64 {
+    1500.0 * 2f64.powf((23.0 - f64::from(crf.clamp(15, 45))) / 6.0)
+}
+
+/// The expected size of the converted file in bytes (video estimate plus 128 kbit/s per audio track).
+pub fn estimated_bytes(duration_secs: f64, crf: u32, audio_tracks: usize) -> u64 {
+    if !duration_secs.is_finite() || duration_secs <= 0.0 {
+        return 0;
+    }
+    let kbps = video_kbps(crf) + 128.0 * audio_tracks as f64;
+    (duration_secs * kbps * 1000.0 / 8.0) as u64
+}
+
+/// `1.4 GB`, `312 MB`, `850 KB`.
+pub fn human_size(bytes: u64) -> String {
+    let b = bytes as f64;
+    if b >= 1e9 {
+        format!("{:.1} GB", b / 1e9)
+    } else if b >= 1e6 {
+        format!("{:.0} MB", b / 1e6)
+    } else {
+        format!("{:.0} KB", b / 1e3)
+    }
 }
 
 /// One frame (at `at` seconds) as a PNG at `out`, 960 px wide at most.
@@ -174,10 +236,10 @@ pub fn cropdetect_args(input: &Path, at: f64) -> Vec<String> {
     a
 }
 
-/// A good moment for preview/cropdetect: 30 s in, or the middle of a short video.
+/// The default moment for preview and crop analysis: minute 10, or the middle of a shorter video.
 pub fn sample_time(duration: f64) -> f64 {
     if duration.is_finite() && duration > 0.0 {
-        30f64.min(duration / 2.0)
+        600f64.min(duration / 2.0)
     } else {
         0.0
     }
@@ -281,8 +343,57 @@ mod tests {
         });
         assert!(s.contains("-crf 45") && s.contains("-preset medium"), "{s}");
         assert_eq!(sample_time(10.0), 5.0);
-        assert_eq!(sample_time(600.0), 30.0);
+        assert_eq!(sample_time(600.0), 300.0);
+        assert_eq!(sample_time(7200.0), 600.0);
         assert_eq!(sample_time(f64::NAN), 0.0);
+    }
+
+    #[test]
+    fn audio_is_128k_stereo_and_the_level_is_3_1() {
+        let s = joined(&Options::default());
+        assert!(
+            s.contains("-b:a 128k -ac 2") && s.contains("-level:v 3.1"),
+            "{s}"
+        );
+        assert!(s.contains("-vf ") && !s.contains("filter_complex"), "{s}");
+    }
+
+    #[test]
+    fn the_live_preview_adds_a_second_output() {
+        let a = args_with_live(
+            Path::new("in.mkv"),
+            Path::new("out.mkv"),
+            &Options::default(),
+            &probe(),
+            Some(Path::new("live.jpg")),
+        );
+        let s = a.join(" ");
+        assert!(
+            s.contains("-map [main]") && s.contains("-filter_complex"),
+            "{s}"
+        );
+        assert!(!s.contains("-vf "), "{s}");
+        // the main output comes first, the preview image last
+        let out = s.find("out.mkv").unwrap();
+        assert!(
+            out < s.find("-map [pvo]").unwrap() && s.ends_with("live.jpg"),
+            "{s}"
+        );
+    }
+
+    #[test]
+    fn size_estimate_follows_the_quality() {
+        let small = estimated_bytes(3600.0, 35, 1);
+        let mid = estimated_bytes(3600.0, 23, 1);
+        let big = estimated_bytes(3600.0, 15, 1);
+        assert!(small < mid && mid < big);
+        // CRF 23, one hour: 1500 + 128 kbit/s
+        assert_eq!(mid, (3600.0 * 1628.0 * 1000.0 / 8.0) as u64);
+        assert_eq!(estimated_bytes(f64::NAN, 20, 1), 0);
+        assert_eq!(human_size(312_000_000), "312 MB");
+        assert_eq!(human_size(1_460_000_000), "1.5 GB");
+        // out-of-range quality is clamped like the encoder does
+        assert_eq!(estimated_bytes(100.0, 99, 0), estimated_bytes(100.0, 45, 0));
     }
 
     #[test]
@@ -373,8 +484,8 @@ mod tests {
         )
         .unwrap();
         let q = crate::video::probe::parse(&out).unwrap();
-        // 640-10-11 = 619 → even 618; 360-20-21 = 319 → 318
-        assert_eq!((q.width, q.height), (618, 318));
+        // always 1280x720, whatever the source or crop
+        assert_eq!((q.width, q.height), (1280, 720));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

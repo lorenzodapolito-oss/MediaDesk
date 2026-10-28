@@ -2,7 +2,6 @@
 
 use mediadesk::ffmpeg::{self, find_tool, new_cancel};
 use mediadesk::video::convert::{self, AudioChoice, Container, Options};
-use mediadesk::video::filters::Crop;
 use mediadesk::video::probe;
 use std::time::Duration;
 
@@ -53,33 +52,31 @@ fn convert_a_generated_clip_with_crop_and_colour() {
     let mut o = Options {
         container: Container::Mp4,
         audio: AudioChoice::All,
-        crop: Some(
-            Crop {
-                left: 160,
-                right: 160,
-                top: 0,
-                bottom: 0,
-            }
-            .clamped(1920, 1080),
-        ),
+        crop: Some(mediadesk::video::aspect::fit(1920, 1080, 0, 0, 1600, 1080)),
         ..Default::default()
     };
     o.color.enabled = true;
     o.color.saturation = 1.4;
     o.color.temperature = 20;
     let target = convert::output_path(&src, &dir, o.container);
-    let args = convert::args(&src, &target, &o, &pr);
+    let live = dir.join("live.jpg");
+    let args = convert::args_with_live(&src, &target, &o, &pr, Some(&live));
     let mut last = 0.0;
     let res = ffmpeg::run(&ffmpeg_bin, &args, &new_cancel(), |s| last = s).unwrap();
     assert!(res.success, "{}", res.stderr_tail);
     assert!(last > 0.0, "no progress reported");
+    assert!(
+        std::fs::metadata(&live)
+            .map(|m| m.len() > 500)
+            .unwrap_or(false),
+        "no live preview frame"
+    );
 
     let (out, _) =
         ffmpeg::capture(&ffprobe_bin, &probe::args(&target), Duration::from_secs(30)).unwrap();
     let done = probe::parse(&out).unwrap();
-    // 1920-320 = 1600 wide, scaled down to 1280; 1600x1080 keeps its ratio: 1280x864
-    assert_eq!(done.width, 1280);
-    assert_eq!(done.height, 864);
+    // always 1280x720
+    assert_eq!((done.width, done.height), (1280, 720));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

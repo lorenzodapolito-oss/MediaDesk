@@ -1,5 +1,6 @@
 //! The Video tab's logic: ffprobe parsing, filters, crop, conversion.
 
+pub mod aspect;
 pub mod convert;
 pub mod filters;
 pub mod probe;

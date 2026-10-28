@@ -8,6 +8,7 @@ use crate::ffmpeg::{self, new_cancel, Cancel};
 use crate::settings::Settings;
 use crate::theme;
 use crate::util::{clock, open_folder};
+use crate::video::aspect;
 use crate::video::convert::{self, AudioChoice, Container, Options, PRESETS};
 use crate::video::filters::Crop;
 use crate::video::probe::{self, Probe};
@@ -30,12 +31,15 @@ struct Entry {
     probe: Option<Probe>,
     options: Options,
     status: Status,
+    /// Where in the video (seconds) the preview and the crop analysis look; minute 10 at first.
+    at: f64,
 }
 
 enum Msg {
     Probed(PathBuf, Result<Probe, String>),
     Preview(PathBuf, Result<Vec<u8>, String>),
-    Detected(PathBuf, Result<Crop, String>),
+    /// The 16:9 crop found at the analysis point; the flag says whether to tell the user.
+    Detected(PathBuf, Result<Crop, String>, bool),
     Started(usize),
     Progress(usize, f32),
     Finished(usize, Status),
@@ -62,7 +66,34 @@ pub struct VideoTab {
     notice: Option<Notice>,
     frame: Option<Frame>,
     preview_busy: bool,
+    /// A preview of the selected file is wanted as soon as its streams are known.
+    want_preview: bool,
+    /// Options edited in the panel go to every file (otherwise only to the selected ones).
+    apply_all: bool,
+    /// The frame being encoded right now, and the file it belongs to.
+    live: Option<Frame>,
+    live_name: String,
+    live_stamp: Option<std::time::SystemTime>,
+    live_checked: std::time::Instant,
     ctx: egui::Context,
+}
+
+/// The 16:9 crop of what `cropdetect` finds at `at` seconds (the whole frame's when it finds nothing).
+fn detect_crop(ff: &Path, file: &Path, at: f64, pr: &Probe) -> Result<Crop, String> {
+    let (_, err) = ffmpeg::capture(
+        ff,
+        &convert::cropdetect_args(file, at),
+        Duration::from_secs(60),
+    )?;
+    Ok(match probe::parse_cropdetect(&err) {
+        Some((w, h, x, y)) => aspect::from_detect(pr.width, pr.height, w, h, x, y),
+        None => aspect::fit_frame(pr.width, pr.height),
+    })
+}
+
+/// Where ffmpeg writes the frame it is encoding.
+fn live_path() -> PathBuf {
+    std::env::temp_dir().join(format!("mediadesk-live-{}.jpg", std::process::id()))
 }
 
 fn status_text(s: &Status) -> String {
@@ -82,9 +113,6 @@ fn summary(o: &Options) -> String {
         format!("CRF {}", o.crf),
         o.preset.clone(),
     ];
-    if o.crop.is_some_and(|c| !c.is_none()) {
-        parts.push("crop".into());
-    }
     if o.color.enabled {
         parts.push("colore".into());
     }
@@ -111,6 +139,12 @@ impl VideoTab {
             notice: None,
             frame: None,
             preview_busy: false,
+            want_preview: false,
+            apply_all: true,
+            live: None,
+            live_name: String::new(),
+            live_stamp: None,
+            live_checked: std::time::Instant::now(),
             ctx: ctx.clone(),
         };
         tab.selection.resize(0);
@@ -172,9 +206,14 @@ impl VideoTab {
                 probe: None,
                 options: Options::default(),
                 status: Status::Waiting,
+                at: 0.0,
             });
         }
         self.selection.resize(self.entries.len());
+        if !self.entries.is_empty() {
+            // the first file is selected, so its frame at minute 10 shows up straight away
+            self.selection.only(0);
+        }
         let found = if files.is_empty() {
             "Nessun video in questa cartella.".to_string()
         } else if tools.ffmpeg.is_none() && tools.ffprobe.is_none() {
@@ -193,10 +232,20 @@ impl VideoTab {
         std::thread::spawn(move || {
             for p in files {
                 let res = probe::read(ffprobe.as_deref(), ffmpeg_path.as_deref(), &p);
-                if tx.send(Msg::Probed(p, res)).is_err() {
+                let found = res.as_ref().ok().cloned();
+                if tx.send(Msg::Probed(p.clone(), res)).is_err() {
                     break;
                 }
                 ctx.request_repaint();
+                // the 16:9 crop is found automatically, looking at minute 10 (or the middle)
+                if let (Some(pr), Some(ff)) = (found, ffmpeg_path.as_deref()) {
+                    let at = convert::sample_time(pr.duration);
+                    let crop = detect_crop(ff, &p, at, &pr);
+                    if tx.send(Msg::Detected(p, crop, false)).is_err() {
+                        break;
+                    }
+                    ctx.request_repaint();
+                }
             }
         });
     }
@@ -230,19 +279,27 @@ impl VideoTab {
             self.frame = None;
             if let Some(i) = first {
                 self.edit = self.entries[i].options.clone();
+                self.want_preview = true;
             }
         }
     }
 
-    /// Copies a changed panel to the selected files (the crop only to the first).
+    /// Copies a changed panel to every file (or only the selected ones when "Applica a tutti"
+    /// is off). The crop is different for each file: it goes only to the first selected one.
     fn apply_edit(&mut self) {
         let first = self.first();
-        for i in self.selection.indices() {
+        let targets: Vec<usize> = if self.apply_all {
+            (0..self.entries.len()).collect()
+        } else {
+            self.selection.indices()
+        };
+        for i in targets {
             let Some(e) = self.entries.get_mut(i) else {
                 continue;
             };
-            let crop = e.options.crop;
+            let (crop, at) = (e.options.crop, e.at);
             e.options = self.edit.clone();
+            e.at = at;
             if Some(i) != first {
                 e.options.crop = crop;
             }
@@ -257,13 +314,7 @@ impl VideoTab {
             return;
         };
         let path = self.entries[i].path.clone();
-        let at = convert::sample_time(
-            self.entries[i]
-                .probe
-                .as_ref()
-                .map(|p| p.duration)
-                .unwrap_or(0.0),
-        );
+        let at = self.entries[i].at;
         self.preview_busy = true;
         let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
         std::thread::spawn(move || {
@@ -281,6 +332,7 @@ impl VideoTab {
         });
     }
 
+    /// Looks for the black bars at the point chosen with the slider and applies a 16:9 crop.
     fn auto_crop(&mut self, tools: &Tools) {
         let (Some(i), Some(ffmpeg_path)) = (self.first(), tools.ffmpeg.clone()) else {
             self.say("Seleziona un file (e serve ffmpeg).", true);
@@ -291,19 +343,11 @@ impl VideoTab {
             return;
         };
         let path = self.entries[i].path.clone();
-        let at = convert::sample_time(pr.duration);
+        let at = self.entries[i].at;
         let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
         std::thread::spawn(move || {
-            let res = ffmpeg::capture(
-                &ffmpeg_path,
-                &convert::cropdetect_args(&path, at),
-                Duration::from_secs(60),
-            )
-            .map(|(_, err)| match probe::parse_cropdetect(&err) {
-                Some((w, h, x, y)) => Crop::from_detect(w, h, x, y, pr.width, pr.height),
-                None => Crop::default(),
-            });
-            let _ = tx.send(Msg::Detected(path, res));
+            let res = detect_crop(&ffmpeg_path, &path, at, &pr);
+            let _ = tx.send(Msg::Detected(path, res, true));
             ctx.request_repaint();
         });
     }
@@ -342,6 +386,10 @@ impl VideoTab {
         }
         self.cancel = new_cancel();
         self.running = true;
+        self.live = None;
+        self.live_stamp = None;
+        let live = live_path();
+        let _ = std::fs::remove_file(&live);
         let (tx, ctx, cancel) = (self.tx.clone(), self.ctx.clone(), self.cancel.clone());
         std::thread::spawn(move || {
             for (i, path, options, pr) in jobs {
@@ -350,6 +398,7 @@ impl VideoTab {
                     continue;
                 }
                 let _ = tx.send(Msg::Started(i));
+                let _ = std::fs::remove_file(&live);
                 let Some(pr) = pr else {
                     let _ = tx.send(Msg::Finished(
                         i,
@@ -358,7 +407,7 @@ impl VideoTab {
                     continue;
                 };
                 let target = convert::output_path(&path, &out, options.container);
-                let args = convert::args(&path, &target, &options, &pr);
+                let args = convert::args_with_live(&path, &target, &options, &pr, Some(&live));
                 let total = pr.duration.max(0.001);
                 let progress_tx = tx.clone();
                 let progress_ctx = ctx.clone();
@@ -404,9 +453,17 @@ impl VideoTab {
                 Msg::Probed(p, res) => {
                     if let Some(e) = self.entries.iter_mut().find(|e| e.path == p) {
                         match res {
-                            Ok(pr) => e.probe = Some(pr),
+                            Ok(pr) => {
+                                e.at = convert::sample_time(pr.duration);
+                                e.options.crop = Some(aspect::fit_frame(pr.width, pr.height));
+                                e.probe = Some(pr);
+                            }
                             Err(err) => e.status = Status::Failed(format!("lettura: {err}")),
                         }
+                    }
+                    if self.first().is_some_and(|i| self.entries[i].path == p) {
+                        // the selected file's panel follows its fresh values
+                        self.edit.crop = self.entries[self.first().unwrap_or(0)].options.crop;
                     }
                 }
                 Msg::Preview(p, res) => {
@@ -427,28 +484,35 @@ impl VideoTab {
                         Err(e) => self.say(format!("Anteprima non riuscita: {e}"), true),
                     }
                 }
-                Msg::Detected(p, res) => match res {
+                Msg::Detected(p, res, announce) => match res {
                     Ok(crop) => {
+                        let crop = Some(crop);
                         if let Some(e) = self.entries.iter_mut().find(|e| e.path == p) {
-                            e.options.crop = (!crop.is_none()).then_some(crop);
+                            e.options.crop = crop;
                         }
                         if self.first().is_some_and(|i| self.entries[i].path == p) {
-                            self.edit.crop = (!crop.is_none()).then_some(crop);
+                            self.edit.crop = crop;
                         }
-                        self.say(
-                            if crop.is_none() {
-                                "Nessuna banda nera trovata."
-                            } else {
-                                "Ritaglio automatico applicato."
-                            },
-                            false,
-                        );
+                        if announce {
+                            self.say("Ritaglio 16:9 applicato.", false);
+                        }
                     }
-                    Err(e) => self.say(format!("Rilevamento non riuscito: {e}"), true),
+                    Err(e) => {
+                        if announce {
+                            self.say(format!("Rilevamento non riuscito: {e}"), true);
+                        }
+                    }
                 },
                 Msg::Started(i) => {
                     if let Some(e) = self.entries.get_mut(i) {
                         e.status = Status::Running(0.0);
+                        self.live_name = e
+                            .path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                        self.live = None;
+                        self.live_stamp = None;
                     }
                 }
                 Msg::Progress(i, f) => {
@@ -463,6 +527,8 @@ impl VideoTab {
                 }
                 Msg::AllDone => {
                     self.running = false;
+                    self.live = None;
+                    let _ = std::fs::remove_file(live_path());
                     let done = self
                         .entries
                         .iter()
@@ -482,11 +548,35 @@ impl VideoTab {
         }
     }
 
+    /// Shows the newest frame ffmpeg wrote while converting (checked twice a second).
+    fn refresh_live(&mut self) {
+        if !self.running || self.live_checked.elapsed() < Duration::from_millis(500) {
+            return;
+        }
+        self.live_checked = std::time::Instant::now();
+        let path = live_path();
+        let Ok(meta) = std::fs::metadata(&path) else {
+            return;
+        };
+        let stamp = meta.modified().ok();
+        if stamp.is_some() && stamp == self.live_stamp {
+            return;
+        }
+        let Ok(bytes) = std::fs::read(&path) else {
+            return;
+        };
+        if let Some(texture) = texture_from_bytes(&self.ctx, "video-live", &bytes, 640) {
+            self.live = Some(Frame { path, texture });
+            self.live_stamp = stamp;
+        }
+    }
+
     // ---- drawing -----------------------------------------------------------------------
 
     pub fn ui(&mut self, ui: &mut egui::Ui, tools: &Tools) {
         self.poll();
         self.sync_selection();
+        self.refresh_live();
         let mut scan = false;
         let mut start = false;
         let mut stop = false;
@@ -627,11 +717,22 @@ impl VideoTab {
             self.cancel
                 .store(true, std::sync::atomic::Ordering::Relaxed);
         }
-        if preview {
-            self.make_preview(tools);
+        if self.want_preview {
+            match self.first() {
+                Some(i) if self.entries[i].probe.is_some() => {
+                    self.want_preview = false;
+                    preview = true;
+                }
+                Some(_) => {}
+                None => self.want_preview = false,
+            }
         }
         if auto {
             self.auto_crop(tools);
+            preview = true;
+        }
+        if preview && !self.running {
+            self.make_preview(tools);
         }
     }
 
@@ -710,6 +811,17 @@ impl VideoTab {
                     }
                 });
         });
+        ui.checkbox(
+            &mut self.apply_all,
+            "Applica le opzioni a tutti i file (altrimenti solo a quelli selezionati)",
+        );
+        ui.label(
+            egui::RichText::new(
+                "Uscita sempre 1280×720, H.264 livello 3.1, audio AAC 128 kbit/s stereo.",
+            )
+            .small()
+            .color(theme::MUTED),
+        );
     }
 
     fn color_panel(&mut self, ui: &mut egui::Ui) {
@@ -805,8 +917,23 @@ impl VideoTab {
                             .as_ref()
                             .map(|p| clock(p.duration))
                             .unwrap_or_else(|| "…".into());
-                        let detail =
-                            format!("{:.0} MB · {dur} · {}", e.size_mb, summary(&e.options));
+                        let tracks = match (&e.options.audio, &e.probe) {
+                            (AudioChoice::Track(_), _) => 1,
+                            (AudioChoice::All, Some(p)) => p.audio.len(),
+                            (AudioChoice::All, None) => 1,
+                        };
+                        let estimate = e
+                            .probe
+                            .as_ref()
+                            .map(|p| convert::estimated_bytes(p.duration, e.options.crf, tracks))
+                            .filter(|b| *b > 0)
+                            .map(|b| format!("circa {}", convert::human_size(b)))
+                            .unwrap_or_else(|| "…".into());
+                        let detail = format!(
+                            "{:.0} MB · uscita {estimate} · {dur} · {}",
+                            e.size_mb,
+                            summary(&e.options)
+                        );
                         let left = rect.left() + 14.0;
                         ui.painter().text(
                             egui::pos2(left, rect.top() + 15.0),
@@ -819,8 +946,8 @@ impl VideoTab {
                             egui::pos2(left, rect.top() + 33.0),
                             egui::Align2::LEFT_CENTER,
                             detail,
-                            egui::FontId::proportional(12.0),
-                            theme::lighten(theme::MUTED, 0.2),
+                            egui::FontId::proportional(12.5),
+                            egui::Color32::WHITE,
                         );
                         let status_color = match e.status {
                             Status::Done(_) => theme::TEAL,
@@ -854,46 +981,68 @@ impl VideoTab {
     }
 
     fn preview_panel(&mut self, ui: &mut egui::Ui, preview: &mut bool, auto: &mut bool) {
-        theme::section(ui, "Anteprima e ritaglio");
+        theme::section(ui, "Anteprima e ritaglio 16:9");
         let first = self.first();
         let src = first.and_then(|i| self.entries[i].probe.as_ref().map(|p| (p.width, p.height)));
         ui.horizontal(|ui| {
             if theme::button(ui, "📷 Anteprima", theme::PRIMARY).clicked() {
                 *preview = true;
             }
-            if theme::button(ui, "🎯 Auto", theme::PRIMARY).clicked() {
+            if theme::button(ui, "🎯 Auto 16:9", theme::PRIMARY).clicked() {
                 *auto = true;
             }
             if theme::button(ui, "🔄 Azzera", theme::PRIMARY).clicked() {
-                self.edit.crop = None;
+                if let Some((w, h)) = src {
+                    self.edit.crop = Some(aspect::fit_frame(w, h));
+                }
             }
         });
-        let mut crop = self.edit.crop.unwrap_or_default();
+        // where in the video the preview and the automatic analysis look
+        if let Some(i) = first {
+            if let Some(duration) = self.entries[i].probe.as_ref().map(|p| p.duration) {
+                let dur = duration.max(1.0);
+                let mut at = self.entries[i].at.clamp(0.0, dur);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(clock(at)).strong());
+                    ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(80.0);
+                    let r = ui.add(egui::Slider::new(&mut at, 0.0..=dur).show_value(false));
+                    ui.label(egui::RichText::new(clock(dur)).small().color(theme::MUTED));
+                    if r.changed() {
+                        self.entries[i].at = at;
+                    }
+                    if r.drag_stopped() || (r.changed() && !r.dragged()) {
+                        *preview = true;
+                    }
+                });
+                ui.label(
+                    egui::RichText::new("Scegli il punto del video, poi premi «Auto 16:9».")
+                        .small()
+                        .color(theme::MUTED),
+                );
+            }
+        }
         if let Some((w, h)) = src {
-            let (w, h) = (w.max(16), h.max(16));
+            let (w, h) = (w.max(32), h.max(18));
+            let old = self.edit.crop.unwrap_or_else(|| aspect::fit_frame(w, h));
+            let mut new = old;
+            let (cw, ch) = aspect::size(w, h, old);
             ui.label(format!(
-                "Fotogramma originale {w}×{h}; ritaglio in pixel per lato"
+                "Fotogramma {w}×{h} · finestra {cw}×{ch} · uscita 1280×720"
             ));
-            let mut changed = false;
+            ui.spacing_mut().slider_width = 110.0;
             egui::Grid::new("video_crop").num_columns(2).show(ui, |ui| {
-                changed |= ui
-                    .add(egui::Slider::new(&mut crop.left, 0..=w / 2).text("sinistra"))
-                    .changed();
-                changed |= ui
-                    .add(egui::Slider::new(&mut crop.right, 0..=w / 2).text("destra"))
-                    .changed();
+                ui.add(egui::Slider::new(&mut new.left, 0..=w / 2).text("sinistra"));
+                ui.add(egui::Slider::new(&mut new.right, 0..=w / 2).text("destra"));
                 ui.end_row();
-                changed |= ui
-                    .add(egui::Slider::new(&mut crop.top, 0..=h / 2).text("sopra"))
-                    .changed();
-                changed |= ui
-                    .add(egui::Slider::new(&mut crop.bottom, 0..=h / 2).text("sotto"))
-                    .changed();
+                ui.add(egui::Slider::new(&mut new.top, 0..=h / 2).text("sopra"));
+                ui.add(egui::Slider::new(&mut new.bottom, 0..=h / 2).text("sotto"));
                 ui.end_row();
             });
-            if changed {
-                let c = crop.clamped(w, h);
-                self.edit.crop = (!c.is_none()).then_some(c);
+            if new != old {
+                if let Some(side) = aspect::changed_side(old, new) {
+                    // moving one side moves the others so the window stays 16:9
+                    self.edit.crop = Some(aspect::adapt(w, h, old, new, side));
+                }
             }
         } else {
             ui.label(egui::RichText::new("Seleziona un file per ritagliarlo.").color(theme::MUTED));
@@ -905,6 +1054,29 @@ impl VideoTab {
             .inner_margin(6)
             .show(ui, |ui| {
                 let width = ui.available_width();
+                if self.running {
+                    ui.vertical_centered(|ui| match &self.live {
+                        Some(l) => {
+                            let size = l.texture.size_vec2();
+                            let shown =
+                                egui::vec2(width - 4.0, (width - 4.0) * size.y / size.x.max(1.0));
+                            ui.add(egui::Image::new((l.texture.id(), shown)));
+                            ui.label(
+                                egui::RichText::new(format!("In codifica: {}", self.live_name))
+                                    .small()
+                                    .color(theme::TEAL),
+                            );
+                        }
+                        None => {
+                            ui.add_space(30.0);
+                            ui.label(
+                                egui::RichText::new("Avvio della codifica…").color(theme::MUTED),
+                            );
+                            ui.add_space(30.0);
+                        }
+                    });
+                    return;
+                }
                 match (&self.frame, src) {
                     (Some(f), Some((w, h)))
                         if self.first().is_some_and(|i| self.entries[i].path == f.path) =>
@@ -996,14 +1168,46 @@ mod tests {
         let mut o = Options::default();
         assert_eq!(summary(&o), "MKV · CRF 20 · medium");
         o.color.enabled = true;
-        o.crop = Some(Crop {
-            left: 4,
-            right: 4,
-            top: 0,
-            bottom: 0,
-        });
         o.hardsub = Some(0);
-        assert!(summary(&o).ends_with("crop · colore · sub"));
+        assert!(summary(&o).ends_with("colore · sub"));
+    }
+
+    fn entry(name: &str, crop: Crop) -> Entry {
+        Entry {
+            path: PathBuf::from(name),
+            size_mb: 1.0,
+            probe: None,
+            options: Options {
+                crop: Some(crop),
+                ..Default::default()
+            },
+            status: Status::Waiting,
+            at: 600.0,
+        }
+    }
+
+    #[test]
+    fn a_quality_change_reaches_every_file_but_each_keeps_its_own_crop() {
+        let mut t = VideoTab::new(&egui::Context::default(), &Settings::default());
+        let (c1, c2) = (aspect::fit_frame(1920, 1080), aspect::fit_frame(1440, 1080));
+        t.entries = vec![entry("a.mkv", c1), entry("b.mkv", c2)];
+        t.selection.resize(2);
+        t.selection.only(0);
+        // nothing is selected-only: the panel edits all files
+        t.edit = t.entries[0].options.clone();
+        t.edit.crf = 35;
+        t.apply_edit();
+        assert!(t.entries.iter().all(|e| e.options.crf == 35));
+        assert_eq!(t.entries[1].options.crop, Some(c2));
+        // with "apply to all" off only the selection changes
+        t.apply_all = false;
+        t.edit.crf = 28;
+        t.apply_edit();
+        assert_eq!(
+            (t.entries[0].options.crf, t.entries[1].options.crf),
+            (28, 35)
+        );
+        assert_eq!(t.entries[1].at, 600.0);
     }
 
     #[test]
