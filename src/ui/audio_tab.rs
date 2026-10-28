@@ -434,13 +434,24 @@ impl AudioTab {
         }
     }
 
+    /// Moves within the track and keeps playing: a paused or just-ended track resumes at once.
     fn seek_by(&mut self, delta: f64) {
         let Some(p) = &mut self.player else { return };
         let len = (self.length > 0.0).then(|| Duration::from_secs_f64(self.length));
         let to = seek_target(p.position(), delta, len);
-        if let Err(e) = p.seek(to) {
-            let msg = format!("Spostamento non riuscito: {e}");
-            self.say(msg, true);
+        if p.finished() {
+            // the track already ended: start it again from the new position
+            if let Some(i) = self.playing {
+                self.play_row(i, to);
+            }
+            return;
+        }
+        match p.seek(to) {
+            Ok(()) => p.resume(),
+            Err(e) => {
+                let msg = format!("Spostamento non riuscito: {e}");
+                self.say(msg, true);
+            }
         }
     }
 
@@ -1018,8 +1029,15 @@ impl AudioTab {
             Act::FetchLyrics => self.fetch_lyrics(),
             Act::SaveLyrics => self.save_lyrics(),
             Act::SeekTo(t) => {
-                if let Some(p) = &mut self.player {
-                    let _ = p.seek(Duration::from_secs_f64(t.max(0.0)));
+                let to = Duration::from_secs_f64(t.max(0.0));
+                if self.player.as_ref().is_some_and(|p| p.finished()) {
+                    if let Some(i) = self.playing {
+                        self.play_row(i, to);
+                    }
+                } else if let Some(p) = &mut self.player {
+                    if p.seek(to).is_ok() {
+                        p.resume();
+                    }
                 }
             }
         }

@@ -17,6 +17,9 @@ pub const TEXT: Color32 = Color32::from_rgb(0xe6, 0xe6, 0xe6);
 pub const MUTED: Color32 = Color32::from_rgb(0x9a, 0xa5, 0xb1);
 
 pub fn apply(ctx: &egui::Context) {
+    // Always the dark look, whatever the system theme says (a light system theme used to turn
+    // the labels dark on the dark panels).
+    ctx.set_theme(egui::ThemePreference::Dark);
     let mut v = egui::Visuals::dark();
     v.panel_fill = BG_DARK;
     v.window_fill = BG_LIGHT;
@@ -25,11 +28,19 @@ pub fn apply(ctx: &egui::Context) {
     v.override_text_color = Some(TEXT);
     v.selection.bg_fill = TEAL;
     v.selection.stroke.color = Color32::WHITE;
-    ctx.set_visuals(v);
-    ctx.global_style_mut(|s| {
-        s.spacing.button_padding = egui::vec2(10.0, 5.0);
-        s.spacing.item_spacing = egui::vec2(8.0, 6.0);
-    });
+    let text = egui::Stroke::new(1.0, TEXT);
+    v.widgets.noninteractive.fg_stroke = text;
+    v.widgets.inactive.fg_stroke = text;
+    v.widgets.hovered.fg_stroke = egui::Stroke::new(1.5, Color32::WHITE);
+    v.widgets.active.fg_stroke = egui::Stroke::new(2.0, Color32::WHITE);
+    v.widgets.open.fg_stroke = text;
+    for theme in [egui::Theme::Dark, egui::Theme::Light] {
+        ctx.set_visuals_of(theme, v.clone());
+        ctx.style_mut_of(theme, |s| {
+            s.spacing.button_padding = egui::vec2(10.0, 5.0);
+            s.spacing.item_spacing = egui::vec2(8.0, 6.0);
+        });
+    }
 }
 
 /// A filled button in one of the palette colours.

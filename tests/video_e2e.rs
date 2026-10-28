@@ -45,6 +45,11 @@ fn convert_a_generated_clip_with_crop_and_colour() {
     assert_eq!((pr.width, pr.height), (1920, 1080));
     assert_eq!(pr.audio.len(), 1);
 
+    // without ffprobe the same streams come from `ffmpeg -i`
+    let alt = probe::read(None, Some(&ffmpeg_bin), &src).unwrap();
+    assert_eq!((alt.width, alt.height, alt.audio.len()), (1920, 1080, 1));
+    assert!((alt.duration - pr.duration).abs() < 0.2);
+
     let mut o = Options {
         container: Container::Mp4,
         audio: AudioChoice::All,

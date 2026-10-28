@@ -146,6 +146,10 @@ impl VideoTab {
         if self.running {
             return;
         }
+        if self.in_dir.trim().is_empty() {
+            self.say("Scegli prima la cartella dei video.", true);
+            return;
+        }
         self.entries.clear();
         self.selection.resize(0);
         self.loaded = None;
@@ -157,13 +161,7 @@ impl VideoTab {
                 return;
             }
         };
-        let Some(ffprobe) = tools.ffprobe.clone() else {
-            self.say(
-                "ffprobe non trovato: non posso leggere tracce e durata (vedi Impostazioni).",
-                true,
-            );
-            return;
-        };
+        let (ffprobe, ffmpeg_path) = (tools.ffprobe.clone(), tools.ffmpeg.clone());
         for p in &files {
             let size_mb = std::fs::metadata(p)
                 .map(|m| m.len() as f64 / 1_048_576.0)
@@ -177,18 +175,47 @@ impl VideoTab {
             });
         }
         self.selection.resize(self.entries.len());
-        self.say(format!("{} video trovati", files.len()), false);
+        let found = if files.is_empty() {
+            "Nessun video in questa cartella.".to_string()
+        } else if tools.ffmpeg.is_none() && tools.ffprobe.is_none() {
+            format!(
+                "{} video trovati, ma ffmpeg non è stato trovato: vedi Impostazioni.",
+                files.len()
+            )
+        } else {
+            format!("{} video trovati", files.len())
+        };
+        self.say(
+            found,
+            files.is_empty() || (tools.ffmpeg.is_none() && tools.ffprobe.is_none()),
+        );
         let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
         std::thread::spawn(move || {
             for p in files {
-                let res = ffmpeg::capture(&ffprobe, &probe::args(&p), Duration::from_secs(30))
-                    .and_then(|(out, _)| probe::parse(&out));
+                let res = probe::read(ffprobe.as_deref(), ffmpeg_path.as_deref(), &p);
                 if tx.send(Msg::Probed(p, res)).is_err() {
                     break;
                 }
                 ctx.request_repaint();
             }
         });
+    }
+
+    /// Shows the output folder in the file manager (created first when it does not exist yet).
+    fn open_output(&mut self) {
+        let dir = self.out_dir.trim().to_string();
+        if dir.is_empty() {
+            self.say("Scegli prima la cartella di uscita.", true);
+            return;
+        }
+        let path = PathBuf::from(&dir);
+        if let Err(e) = std::fs::create_dir_all(&path) {
+            self.say(format!("Cartella non utilizzabile: {e}"), true);
+            return;
+        }
+        if let Err(e) = open_folder(&path) {
+            self.say(e, true);
+        }
     }
 
     fn first(&self) -> Option<usize> {
@@ -465,6 +492,7 @@ impl VideoTab {
         let mut stop = false;
         let mut preview = false;
         let mut auto = false;
+        let mut open = false;
 
         egui::Panel::top("video_top")
             .frame(egui::Frame::new().fill(theme::BG_LIGHT).inner_margin(8))
@@ -503,12 +531,8 @@ impl VideoTab {
                         egui::TextEdit::singleline(&mut self.out_dir)
                             .desired_width(ui.available_width() - 330.0),
                     );
-                    if theme::button(ui, "📁 Apri", theme::PRIMARY).clicked()
-                        && !self.out_dir.trim().is_empty()
-                    {
-                        if let Err(e) = open_folder(Path::new(self.out_dir.trim())) {
-                            self.say(e, true);
-                        }
+                    if theme::button(ui, "📁 Apri", theme::PRIMARY).clicked() {
+                        open = true;
                     }
                     if self.running {
                         if theme::button(ui, "⏹ Ferma", theme::ACCENT).clicked() {
@@ -569,6 +593,9 @@ impl VideoTab {
                 self.file_list(ui);
             });
 
+        if open {
+            self.open_output();
+        }
         if scan {
             self.scan(tools);
         }
