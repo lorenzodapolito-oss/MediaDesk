@@ -142,21 +142,46 @@ impl eframe::App for App {
             .frame(
                 egui::Frame::new()
                     .fill(theme::BG_LIGHT)
-                    .inner_margin(egui::Margin::symmetric(10, 6)),
+                    .stroke(egui::Stroke::new(1.0, theme::LINE))
+                    .inner_margin(egui::Margin::symmetric(14, 10)),
             )
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    for (tab, label) in [(Tab::Audio, "🎧 Audio"), (Tab::Video, "🎬 Video")] {
+                    ui.label(
+                        egui::RichText::new("MediaDesk")
+                            .strong()
+                            .size(18.0)
+                            .color(theme::TEAL),
+                    );
+                    ui.add_space(14.0);
+                    for (tab, label) in [(Tab::Audio, "🎧  Audio"), (Tab::Video, "🎬  Video")] {
                         let selected = self.tab == tab;
-                        let text = egui::RichText::new(label).size(15.0).strong();
-                        if ui
-                            .add(
-                                egui::Button::new(text)
-                                    .selected(selected)
-                                    .min_size(egui::vec2(110.0, 28.0)),
-                            )
-                            .clicked()
-                        {
+                        let fill = if selected {
+                            theme::TEAL
+                        } else {
+                            theme::BG_LIGHT
+                        };
+                        let text = egui::RichText::new(label).size(15.0);
+                        let text = if selected {
+                            text.strong()
+                        } else {
+                            text.color(theme::MUTED)
+                        };
+                        let r = ui.scope(|ui| {
+                            let w = &mut ui.visuals_mut().widgets;
+                            for st in [&mut w.inactive, &mut w.hovered, &mut w.active] {
+                                st.corner_radius = egui::CornerRadius::same(18);
+                            }
+                            w.inactive.weak_bg_fill = fill;
+                            w.inactive.bg_stroke = egui::Stroke::NONE;
+                            w.hovered.weak_bg_fill = if selected {
+                                theme::lighten(fill, 0.1)
+                            } else {
+                                theme::FIELD_BG
+                            };
+                            ui.add(egui::Button::new(text).min_size(egui::vec2(104.0, 34.0)))
+                        });
+                        if r.inner.clicked() {
                             self.tab = tab;
                         }
                     }

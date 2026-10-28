@@ -817,27 +817,37 @@ impl AudioTab {
 
         let mut act: Vec<Act> = Vec::new();
         egui::Panel::top("audio_top")
-            .frame(egui::Frame::new().fill(theme::BG_LIGHT).inner_margin(8))
+            .frame(theme::page(10).inner_margin(egui::Margin {
+                left: 10,
+                right: 10,
+                top: 10,
+                bottom: 0,
+            }))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    if theme::button(ui, "Sfoglia", theme::PRIMARY).clicked() {
-                        act.push(Act::Browse);
-                    }
-                    ui.label("📂 Percorso:");
-                    let r = ui.add(
-                        egui::TextEdit::singleline(&mut self.folder)
-                            .desired_width(ui.available_width() - 150.0),
-                    );
-                    if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        act.push(Act::Refresh);
-                    }
-                    if theme::button(ui, "📁 Apri cartella", theme::PRIMARY).clicked() {
-                        act.push(Act::OpenFolder);
-                    }
-                });
+                theme::card()
+                    .inner_margin(egui::Margin::symmetric(12, 8))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            if theme::button(ui, "Sfoglia", theme::PRIMARY).clicked() {
+                                act.push(Act::Browse);
+                            }
+                            ui.label("📂 Percorso:");
+                            let r = ui.add(
+                                egui::TextEdit::singleline(&mut self.folder)
+                                    .desired_width(ui.available_width() - 150.0),
+                            );
+                            if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                act.push(Act::Refresh);
+                            }
+                            if theme::button(ui, "📁 Apri cartella", theme::PRIMARY).clicked() {
+                                act.push(Act::OpenFolder);
+                            }
+                        });
+                    });
             });
         egui::Panel::bottom("audio_status")
-            .frame(egui::Frame::new().fill(theme::BG_LIGHT).inner_margin(6))
+            .frame(theme::page(10).inner_margin(egui::Margin::symmetric(16, 6)))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if let Some(j) = &self.job {
@@ -866,78 +876,44 @@ impl AudioTab {
                 });
             });
         egui::Panel::left("audio_left")
-            .exact_size(250.0)
-            .frame(egui::Frame::new().fill(theme::BG_LIGHT).inner_margin(8))
+            .exact_size(270.0)
+            .frame(theme::page(10))
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 6.0;
-                let w = ui.available_width();
-                let big = |ui: &mut egui::Ui, text: &str, color, a: Act, act: &mut Vec<Act>| {
-                    if ui
-                        .add_sized(
-                            [w, 34.0],
-                            egui::Button::new(
-                                egui::RichText::new(text)
-                                    .color(egui::Color32::WHITE)
-                                    .strong(),
-                            )
-                            .fill(color)
-                            .corner_radius(8.0),
-                        )
-                        .clicked()
-                    {
-                        act.push(a);
+                theme::card().show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.spacing_mut().item_spacing.y = 8.0;
+                    for (text, color, a) in [
+                        ("✅ Seleziona tutti", theme::PRIMARY, Act::SelectAll),
+                        ("💿 Converti MP3 160k + norm", theme::TEAL, Act::Convert),
+                        ("🤖 Autotag automatico", theme::PURPLE, Act::AutoTag),
+                        ("📝 Proprietà avanzate", theme::BLUE, Act::Props),
+                        ("✏️ Rinomina file", theme::VIOLET, Act::Rename),
+                        ("🔥 Salva modifiche", theme::ORANGE, Act::SaveRatings),
+                    ] {
+                        if theme::wide_button(ui, text, color).clicked() {
+                            act.push(a);
+                        }
                     }
-                };
-                big(
-                    ui,
-                    "✅ SELEZIONA TUTTI",
-                    theme::PRIMARY,
-                    Act::SelectAll,
-                    &mut act,
-                );
-                big(
-                    ui,
-                    "💿 CONVERTI MP3 160k + NORM",
-                    theme::TEAL,
-                    Act::Convert,
-                    &mut act,
-                );
-                big(
-                    ui,
-                    "🤖 AUTOTAG AUTOMATICO",
-                    theme::PURPLE,
-                    Act::AutoTag,
-                    &mut act,
-                );
-                big(
-                    ui,
-                    "📝 PROPRIETÀ AVANZATE",
-                    theme::BLUE,
-                    Act::Props,
-                    &mut act,
-                );
-                big(ui, "✏️ RINOMINA FILE", theme::VIOLET, Act::Rename, &mut act);
-                big(
-                    ui,
-                    "🔥 SALVA MODIFICHE",
-                    theme::ORANGE,
-                    Act::SaveRatings,
-                    &mut act,
-                );
+                });
                 ui.add_space(10.0);
-                ui.separator();
-                self.player_controls(ui, &mut act);
+                theme::card().show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    self.player_controls(ui, &mut act);
+                });
             });
         egui::Panel::right("audio_right")
-            .default_size(360.0)
-            .frame(egui::Frame::new().fill(theme::BG_DARK).inner_margin(6))
+            .default_size(370.0)
+            .frame(theme::page(10))
             .show(ui, |ui| {
                 self.preview(ui, &mut act);
             });
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(theme::LIST_BG).inner_margin(4))
+            .frame(theme::page(10))
             .show(ui, |ui| {
-                self.table(ui, &mut act);
+                theme::list_card().show(ui, |ui| {
+                    ui.set_min_size(ui.available_size());
+                    self.table(ui, &mut act);
+                });
             });
         self.windows(&ctx);
         for a in act {
@@ -1044,9 +1020,11 @@ impl AudioTab {
     }
 
     fn player_controls(&mut self, ui: &mut egui::Ui, act: &mut Vec<Act>) {
+        use egui::{vec2, RichText};
         ui.horizontal(|ui| {
+            theme::section(ui, "Player");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if theme::button(ui, "🗑", theme::ACCENT)
+                if theme::button_sized(ui, vec2(38.0, 28.0), RichText::new("🗑"), theme::ACCENT)
                     .on_hover_text("Sposta nel cestino (Canc)")
                     .clicked()
                 {
@@ -1054,63 +1032,66 @@ impl AudioTab {
                 }
             });
         });
+        ui.add_space(2.0);
         let w = ui.available_width();
-        if ui
-            .add_sized(
-                [w, 26.0],
-                egui::Button::new("▲ PRECEDENTE").fill(theme::BG_DARK),
-            )
-            .clicked()
+        let ghost = theme::FIELD_BG;
+        if theme::button_sized(
+            ui,
+            vec2(w, 28.0),
+            RichText::new("▲ Precedente").size(13.0),
+            ghost,
+        )
+        .clicked()
         {
             act.push(Act::Prev);
         }
         ui.horizontal(|ui| {
-            if ui
-                .add_sized([44.0, 28.0], egui::Button::new("-30s").fill(theme::BG_DARK))
-                .clicked()
+            ui.spacing_mut().item_spacing.x = 6.0;
+            if theme::button_sized(
+                ui,
+                vec2(46.0, 34.0),
+                RichText::new("-30s").size(13.0),
+                ghost,
+            )
+            .clicked()
             {
                 act.push(Act::Seek(-30.0));
             }
             let paused_or_idle = self.player.as_ref().is_none_or(|p| p.is_paused());
             let label = if paused_or_idle { "▶" } else { "⏸" };
             let color = if paused_or_idle {
-                theme::PRIMARY
+                theme::TEAL
             } else {
                 theme::ACCENT
             };
-            if ui
-                .add_sized(
-                    [56.0, 34.0],
-                    egui::Button::new(
-                        egui::RichText::new(label)
-                            .size(16.0)
-                            .color(egui::Color32::WHITE),
-                    )
-                    .fill(color),
-                )
+            if theme::button_sized(ui, vec2(60.0, 42.0), RichText::new(label).size(18.0), color)
                 .clicked()
             {
                 act.push(Act::Toggle);
             }
-            if ui
-                .add_sized([44.0, 28.0], egui::Button::new("⏹").fill(theme::ACCENT))
+            if theme::button_sized(ui, vec2(40.0, 34.0), RichText::new("⏹"), theme::ACCENT)
                 .clicked()
             {
                 act.push(Act::Stop);
             }
-            if ui
-                .add_sized([44.0, 28.0], egui::Button::new("+30s").fill(theme::BG_DARK))
-                .clicked()
+            if theme::button_sized(
+                ui,
+                vec2(46.0, 34.0),
+                RichText::new("+30s").size(13.0),
+                ghost,
+            )
+            .clicked()
             {
                 act.push(Act::Seek(30.0));
             }
         });
-        if ui
-            .add_sized(
-                [w, 26.0],
-                egui::Button::new("▼ SUCCESSIVO").fill(theme::BG_DARK),
-            )
-            .clicked()
+        if theme::button_sized(
+            ui,
+            vec2(w, 28.0),
+            RichText::new("▼ Successivo").size(13.0),
+            ghost,
+        )
+        .clicked()
         {
             act.push(Act::Next);
         }
@@ -1119,24 +1100,30 @@ impl AudioTab {
             let mut t = pos;
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label(clock(pos));
+                ui.label(RichText::new(clock(pos)).small().color(theme::MUTED));
+                ui.spacing_mut().slider_width = (ui.available_width() - 46.0).max(60.0);
                 let r =
                     ui.add(egui::Slider::new(&mut t, 0.0..=self.length.max(1.0)).show_value(false));
                 if r.drag_stopped() || (r.changed() && !r.dragged()) {
                     act.push(Act::SeekTo(t));
                 }
-                ui.label(clock(self.length));
+                ui.label(
+                    RichText::new(clock(self.length))
+                        .small()
+                        .color(theme::MUTED),
+                );
             });
             if let Some(name) = self
                 .playing
                 .and_then(|i| self.rows.get(i))
                 .map(|r| r.name.clone())
             {
-                ui.label(egui::RichText::new(name).small().color(theme::MUTED));
+                ui.label(RichText::new(name).small().color(theme::MUTED));
             }
         }
         ui.horizontal(|ui| {
             ui.label("🔊");
+            ui.spacing_mut().slider_width = (ui.available_width() - 8.0).max(60.0);
             if ui
                 .add(egui::Slider::new(&mut self.volume, 0.0..=1.0).show_value(false))
                 .changed()
@@ -1149,10 +1136,7 @@ impl AudioTab {
     }
 
     fn preview(&mut self, ui: &mut egui::Ui, act: &mut Vec<Act>) {
-        let frame = egui::Frame::new()
-            .fill(theme::BG_LIGHT)
-            .corner_radius(10.0)
-            .inner_margin(8);
+        let frame = theme::card();
         frame.show(ui, |ui| {
             ui.set_width(ui.available_width());
             match (&self.info, &self.shown) {
@@ -1200,10 +1184,8 @@ impl AudioTab {
             });
         });
         ui.add_space(6.0);
-        egui::Frame::new()
+        theme::card()
             .fill(egui::Color32::from_rgb(0x1e, 0x2b, 0x37))
-            .corner_radius(10.0)
-            .inner_margin(8)
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
@@ -1227,13 +1209,25 @@ impl AudioTab {
 
     fn table(&mut self, ui: &mut egui::Ui, act: &mut Vec<Act>) {
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Nome file").strong());
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new("NOME FILE")
+                    .small()
+                    .strong()
+                    .color(theme::MUTED),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(egui::RichText::new("Rating").strong());
+                ui.add_space(14.0);
+                ui.label(
+                    egui::RichText::new("RATING")
+                        .small()
+                        .strong()
+                        .color(theme::MUTED),
+                );
             });
         });
-        ui.separator();
-        let row_h = 26.0;
+        ui.add_space(2.0);
+        let row_h = 32.0;
         let n = self.rows.len();
         let mods = ui.input(|i| i.modifiers);
         let mut clicked: Option<usize> = None;
@@ -1252,15 +1246,20 @@ impl AudioTab {
                     );
                     let selected = self.sel.contains(i);
                     let playing = self.playing == Some(i);
+                    let bg = rect.shrink2(egui::vec2(2.0, 1.0));
                     if selected {
-                        ui.painter().rect_filled(rect, 4.0, theme::TEAL);
+                        ui.painter().rect_filled(bg, 9.0, theme::TEAL);
                     } else if resp.hovered() {
-                        ui.painter().rect_filled(rect, 4.0, theme::FIELD_BG);
+                        ui.painter()
+                            .rect_filled(bg, 9.0, theme::lighten(theme::LIST_BG, 0.1));
+                    } else if i % 2 == 1 {
+                        ui.painter()
+                            .rect_filled(bg, 9.0, theme::darken(theme::LIST_BG, 0.08));
                     }
                     let font = egui::FontId::proportional(14.0);
                     let prefix = if playing { "▶ " } else { "" };
                     ui.painter().text(
-                        rect.left_center() + egui::vec2(8.0, 0.0),
+                        rect.left_center() + egui::vec2(12.0, 0.0),
                         egui::Align2::LEFT_CENTER,
                         format!("{prefix}{}", row.name),
                         font.clone(),

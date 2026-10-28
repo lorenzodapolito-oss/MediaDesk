@@ -493,59 +493,72 @@ impl VideoTab {
         let mut preview = false;
         let mut auto = false;
         let mut open = false;
+        let before_edit = self.edit.clone();
 
         egui::Panel::top("video_top")
-            .frame(egui::Frame::new().fill(theme::BG_LIGHT).inner_margin(8))
+            .frame(theme::page(10).inner_margin(egui::Margin {
+                left: 10,
+                right: 10,
+                top: 10,
+                bottom: 0,
+            }))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    if theme::button(ui, "Cartella video", theme::PRIMARY).clicked() {
-                        if let Some(p) = rfd::FileDialog::new()
-                            .set_title("Cartella con i video")
-                            .pick_folder()
-                        {
-                            self.in_dir = p.to_string_lossy().into_owned();
-                            scan = true;
-                        }
-                    }
-                    let r = ui.add(
-                        egui::TextEdit::singleline(&mut self.in_dir)
-                            .desired_width(ui.available_width() - 330.0),
-                    );
-                    if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        scan = true;
-                    }
-                    if theme::button(ui, "🔍 Scansiona", theme::PRIMARY).clicked() {
-                        scan = true;
-                    }
-                });
-                ui.horizontal(|ui| {
-                    if theme::button(ui, "Cartella di uscita", theme::PRIMARY).clicked() {
-                        if let Some(p) = rfd::FileDialog::new()
-                            .set_title("Dove salvare i video convertiti")
-                            .pick_folder()
-                        {
-                            self.out_dir = p.to_string_lossy().into_owned();
-                        }
-                    }
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.out_dir)
-                            .desired_width(ui.available_width() - 330.0),
-                    );
-                    if theme::button(ui, "📁 Apri", theme::PRIMARY).clicked() {
-                        open = true;
-                    }
-                    if self.running {
-                        if theme::button(ui, "⏹ Ferma", theme::ACCENT).clicked() {
-                            stop = true;
-                        }
-                    } else if theme::button(ui, "▶ Avvia conversione", theme::TEAL).clicked() {
-                        start = true;
-                    }
-                });
+                theme::card()
+                    .inner_margin(egui::Margin::symmetric(12, 10))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            if theme::button(ui, "Cartella video", theme::PRIMARY).clicked() {
+                                if let Some(p) = rfd::FileDialog::new()
+                                    .set_title("Cartella con i video")
+                                    .pick_folder()
+                                {
+                                    self.in_dir = p.to_string_lossy().into_owned();
+                                    scan = true;
+                                }
+                            }
+                            let r = ui.add(
+                                egui::TextEdit::singleline(&mut self.in_dir)
+                                    .desired_width(ui.available_width() - 330.0),
+                            );
+                            if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                scan = true;
+                            }
+                            if theme::button(ui, "🔍 Scansiona", theme::PRIMARY).clicked() {
+                                scan = true;
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            if theme::button(ui, "Cartella di uscita", theme::PRIMARY).clicked() {
+                                if let Some(p) = rfd::FileDialog::new()
+                                    .set_title("Dove salvare i video convertiti")
+                                    .pick_folder()
+                                {
+                                    self.out_dir = p.to_string_lossy().into_owned();
+                                }
+                            }
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.out_dir)
+                                    .desired_width(ui.available_width() - 330.0),
+                            );
+                            if theme::button(ui, "📁 Apri", theme::PRIMARY).clicked() {
+                                open = true;
+                            }
+                            if self.running {
+                                if theme::button(ui, "⏹ Ferma", theme::ACCENT).clicked() {
+                                    stop = true;
+                                }
+                            } else if theme::button(ui, "▶ Avvia conversione", theme::TEAL)
+                                .clicked()
+                            {
+                                start = true;
+                            }
+                        });
+                    });
             });
 
         egui::Panel::bottom("video_status")
-            .frame(egui::Frame::new().fill(theme::BG_LIGHT).inner_margin(6))
+            .frame(theme::page(10).inner_margin(egui::Margin::symmetric(16, 6)))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     if self.running {
@@ -571,25 +584,33 @@ impl VideoTab {
             });
 
         egui::Panel::right("video_right")
-            .default_size(440.0)
-            .frame(egui::Frame::new().fill(theme::BG_DARK).inner_margin(8))
+            .default_size(470.0)
+            .frame(theme::page(10))
             .show(ui, |ui| {
-                self.preview_panel(ui, &mut preview, &mut auto);
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    theme::card().show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        self.preview_panel(ui, &mut preview, &mut auto);
+                    });
+                    ui.add_space(10.0);
+                    theme::card().show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        self.color_panel(ui);
+                    });
+                });
             });
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(theme::BG_DARK).inner_margin(6))
+            .frame(theme::page(10))
             .show(ui, |ui| {
-                let before = self.edit.clone();
-                egui::Frame::new()
-                    .fill(theme::BG_LIGHT)
-                    .corner_radius(10.0)
-                    .inner_margin(8)
-                    .show(ui, |ui| self.options_panel(ui));
-                if self.edit != before {
+                theme::card().show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    self.options_panel(ui)
+                });
+                if self.edit != before_edit {
                     self.apply_edit();
                 }
-                ui.add_space(6.0);
+                ui.add_space(10.0);
                 self.file_list(ui);
             });
 
@@ -615,11 +636,7 @@ impl VideoTab {
     }
 
     fn options_panel(&mut self, ui: &mut egui::Ui) {
-        ui.label(
-            egui::RichText::new("Opzioni di codifica")
-                .strong()
-                .size(15.0),
-        );
+        theme::section(ui, "Opzioni di codifica");
         ui.horizontal(|ui| {
             ui.label("Contenitore:");
             ui.selectable_value(&mut self.edit.container, Container::Mkv, "MKV");
@@ -693,30 +710,33 @@ impl VideoTab {
                     }
                 });
         });
-        ui.separator();
-        ui.label(
-            egui::RichText::new("Correzione colore e bilanciamento del bianco")
-                .strong()
-                .size(15.0),
-        );
+    }
+
+    fn color_panel(&mut self, ui: &mut egui::Ui) {
+        theme::section(ui, "Correzione colore");
         let c = &mut self.edit.color;
         ui.checkbox(&mut c.enabled, "Attiva i filtri colore");
         ui.add_enabled_ui(c.enabled, |ui| {
+            ui.spacing_mut().slider_width = 170.0;
             egui::Grid::new("video_color")
-                .num_columns(4)
+                .num_columns(2)
+                .spacing([14.0, 8.0])
                 .show(ui, |ui| {
                     ui.label("Luminosità");
                     ui.add(egui::Slider::new(&mut c.brightness, -1.0..=1.0));
+                    ui.end_row();
                     ui.label("Contrasto");
                     ui.add(egui::Slider::new(&mut c.contrast, 0.0..=2.0));
                     ui.end_row();
                     ui.label("Saturazione");
                     ui.add(egui::Slider::new(&mut c.saturation, 0.0..=3.0));
+                    ui.end_row();
                     ui.label("Gamma");
                     ui.add(egui::Slider::new(&mut c.gamma, 0.1..=3.0));
                     ui.end_row();
                     ui.label("Temperatura");
                     ui.add(egui::Slider::new(&mut c.temperature, -100..=100));
+                    ui.end_row();
                     ui.label("Tinta (°)");
                     ui.add(egui::Slider::new(&mut c.hue, -180.0..=180.0));
                     ui.end_row();
@@ -732,68 +752,109 @@ impl VideoTab {
     }
 
     fn file_list(&mut self, ui: &mut egui::Ui) {
-        ui.label(egui::RichText::new("File trovati").strong().size(14.0));
         let mut click: Option<(usize, bool, bool)> = None;
-        egui::Frame::new()
-            .fill(theme::LIST_BG)
-            .corner_radius(10.0)
-            .inner_margin(4)
-            .show(ui, |ui| {
-                egui::ScrollArea::both()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        if self.entries.is_empty() {
+        theme::list_card().show(ui, |ui| {
+            ui.set_min_size(ui.available_size());
+            ui.horizontal(|ui| {
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(format!("FILE TROVATI ({})", self.entries.len()))
+                        .small()
+                        .strong()
+                        .color(theme::MUTED),
+                );
+            });
+            ui.add_space(2.0);
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    if self.entries.is_empty() {
+                        ui.add_space(20.0);
+                        ui.vertical_centered(|ui| {
                             ui.label(
                                 egui::RichText::new(
                                     "Scegli la cartella dei video e premi Scansiona.",
                                 )
                                 .color(theme::MUTED),
                             );
+                        });
+                    }
+                    let row_h = 48.0;
+                    for (i, e) in self.entries.iter().enumerate() {
+                        let (rect, resp) = ui.allocate_exact_size(
+                            egui::vec2(ui.available_width(), row_h),
+                            egui::Sense::click(),
+                        );
+                        let bg = rect.shrink2(egui::vec2(2.0, 1.0));
+                        if self.selection.contains(i) {
+                            ui.painter().rect_filled(bg, 10.0, theme::TEAL);
+                        } else if resp.hovered() {
+                            ui.painter()
+                                .rect_filled(bg, 10.0, theme::lighten(theme::LIST_BG, 0.1));
+                        } else if i % 2 == 1 {
+                            ui.painter()
+                                .rect_filled(bg, 10.0, theme::darken(theme::LIST_BG, 0.08));
                         }
-                        for (i, e) in self.entries.iter().enumerate() {
-                            let selected = self.selection.contains(i);
-                            let name = e
-                                .path
-                                .file_name()
-                                .map(|n| n.to_string_lossy().into_owned())
-                                .unwrap_or_default();
-                            let dur = e
-                                .probe
-                                .as_ref()
-                                .map(|p| clock(p.duration))
-                                .unwrap_or_else(|| "…".into());
-                            let line = format!(
-                                "{name}   ({:.0} MB, {dur})   {}   —   {}",
-                                e.size_mb,
-                                summary(&e.options),
-                                status_text(&e.status)
+                        let name = e
+                            .path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default();
+                        let dur = e
+                            .probe
+                            .as_ref()
+                            .map(|p| clock(p.duration))
+                            .unwrap_or_else(|| "…".into());
+                        let detail =
+                            format!("{:.0} MB · {dur} · {}", e.size_mb, summary(&e.options));
+                        let left = rect.left() + 14.0;
+                        ui.painter().text(
+                            egui::pos2(left, rect.top() + 15.0),
+                            egui::Align2::LEFT_CENTER,
+                            name,
+                            egui::FontId::proportional(14.5),
+                            egui::Color32::WHITE,
+                        );
+                        ui.painter().text(
+                            egui::pos2(left, rect.top() + 33.0),
+                            egui::Align2::LEFT_CENTER,
+                            detail,
+                            egui::FontId::proportional(12.0),
+                            theme::lighten(theme::MUTED, 0.2),
+                        );
+                        let status_color = match e.status {
+                            Status::Done(_) => theme::TEAL,
+                            Status::Failed(_) => theme::ACCENT,
+                            _ => egui::Color32::WHITE,
+                        };
+                        ui.painter().text(
+                            egui::pos2(rect.right() - 14.0, rect.top() + 24.0),
+                            egui::Align2::RIGHT_CENTER,
+                            status_text(&e.status),
+                            egui::FontId::proportional(13.0),
+                            status_color,
+                        );
+                        if let Status::Running(f) = e.status {
+                            let bar = egui::Rect::from_min_size(
+                                egui::pos2(bg.left() + 10.0, bg.bottom() - 6.0),
+                                egui::vec2((bg.width() - 20.0) * f, 3.0),
                             );
-                            let resp = ui.selectable_label(selected, line);
-                            if resp.clicked() {
-                                let m = ui.input(|i| i.modifiers);
-                                click = Some((i, m.command, m.shift));
-                            }
-                            if let Status::Running(f) = e.status {
-                                ui.add(
-                                    egui::ProgressBar::new(f)
-                                        .desired_height(5.0)
-                                        .fill(theme::TEAL),
-                                );
-                            }
+                            ui.painter().rect_filled(bar, 2.0, theme::TEAL);
                         }
-                    });
-            });
+                        if resp.clicked() {
+                            let m = ui.input(|i| i.modifiers);
+                            click = Some((i, m.command, m.shift));
+                        }
+                    }
+                });
+        });
         if let Some((i, ctrl, shift)) = click {
             self.selection.click(i, ctrl, shift);
         }
     }
 
     fn preview_panel(&mut self, ui: &mut egui::Ui, preview: &mut bool, auto: &mut bool) {
-        ui.label(
-            egui::RichText::new("Anteprima e ritaglio")
-                .strong()
-                .size(15.0),
-        );
+        theme::section(ui, "Anteprima e ritaglio");
         let first = self.first();
         let src = first.and_then(|i| self.entries[i].probe.as_ref().map(|p| (p.width, p.height)));
         ui.horizontal(|ui| {
@@ -839,7 +900,7 @@ impl VideoTab {
         }
         let crop = self.edit.crop.unwrap_or_default();
         egui::Frame::new()
-            .fill(theme::BG_LIGHT)
+            .fill(theme::BG_DARK)
             .corner_radius(10.0)
             .inner_margin(6)
             .show(ui, |ui| {
