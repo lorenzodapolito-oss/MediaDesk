@@ -1,6 +1,6 @@
 //! Batch conversion: ffmpeg arguments for one file, and the preview frame.
 
-use super::filters::{video_filter, Color, Crop};
+use super::filters::{color_filter, video_filter, Color, Crop};
 use super::probe::Probe;
 use crate::util::unique_path;
 use std::path::{Path, PathBuf};
@@ -198,8 +198,9 @@ pub fn human_size(bytes: u64) -> String {
     }
 }
 
-/// One frame (at `at` seconds) as a PNG at `out`, 960 px wide at most.
-pub fn preview_args(input: &Path, at: f64, out: &Path) -> Vec<String> {
+/// One frame (at `at` seconds) as a PNG at `out`, 960 px wide at most, with the colour
+/// correction applied so the preview shows what the conversion will produce.
+pub fn preview_args(input: &Path, at: f64, out: &Path, color: &Color) -> Vec<String> {
     let mut a: Vec<String> = ["-nostdin", "-hide_banner", "-y", "-ss"]
         .iter()
         .map(|s| s.to_string())
@@ -207,7 +208,13 @@ pub fn preview_args(input: &Path, at: f64, out: &Path) -> Vec<String> {
     a.push(format!("{:.2}", at.max(0.0)));
     a.push("-i".into());
     a.push(input.to_string_lossy().into_owned());
-    a.extend(["-frames:v", "1", "-vf", "scale='min(960,iw)':-2"].map(String::from));
+    let mut vf = String::from("scale='min(960,iw)':-2");
+    let col = color_filter(color);
+    if !col.is_empty() {
+        vf.push(',');
+        vf.push_str(&col);
+    }
+    a.extend(["-frames:v".to_string(), "1".into(), "-vf".into(), vf]);
     a.push(out.to_string_lossy().into_owned());
     a
 }
@@ -379,6 +386,16 @@ mod tests {
             out < s.find("-map [pvo]").unwrap() && s.ends_with("live.jpg"),
             "{s}"
         );
+    }
+
+    #[test]
+    fn the_preview_frame_carries_the_colour_correction() {
+        let out = Path::new("p.png");
+        let plain = preview_args(Path::new("a.mkv"), 5.0, out, &Color::default()).join(" ");
+        assert!(plain.ends_with("scale='min(960,iw)':-2 p.png"), "{plain}");
+        let c = Color { enabled: true, saturation: 2.0, ..Default::default() };
+        let tinted = preview_args(Path::new("a.mkv"), 5.0, out, &c).join(" ");
+        assert!(tinted.contains("scale='min(960,iw)':-2,eq=saturation=2.00"), "{tinted}");
     }
 
     #[test]

@@ -68,6 +68,8 @@ pub struct VideoTab {
     preview_busy: bool,
     /// A preview of the selected file is wanted as soon as its streams are known.
     want_preview: bool,
+    /// The colour settings changed: refresh the preview once the slider is let go.
+    color_dirty: bool,
     /// Options edited in the panel go to every file (otherwise only to the selected ones).
     apply_all: bool,
     /// The frame being encoded right now, and the file it belongs to.
@@ -140,6 +142,7 @@ impl VideoTab {
             frame: None,
             preview_busy: false,
             want_preview: false,
+            color_dirty: false,
             apply_all: true,
             live: None,
             live_name: String::new(),
@@ -315,6 +318,7 @@ impl VideoTab {
         };
         let path = self.entries[i].path.clone();
         let at = self.entries[i].at;
+        let color = self.edit.color.clone();
         self.preview_busy = true;
         let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
         std::thread::spawn(move || {
@@ -322,7 +326,7 @@ impl VideoTab {
                 std::env::temp_dir().join(format!("mediadesk-preview-{}.png", std::process::id()));
             let res = ffmpeg::capture(
                 &ffmpeg_path,
-                &convert::preview_args(&path, at, &png),
+                &convert::preview_args(&path, at, &png, &color),
                 Duration::from_secs(60),
             )
             .and_then(|_| std::fs::read(&png).map_err(|e| e.to_string()));
@@ -729,6 +733,13 @@ impl VideoTab {
         }
         if auto {
             self.auto_crop(tools);
+            preview = true;
+        }
+        if before_edit.color != self.edit.color {
+            self.color_dirty = true;
+        }
+        if self.color_dirty && !self.preview_busy && !self.ctx.input(|i| i.pointer.any_down()) {
+            self.color_dirty = false;
             preview = true;
         }
         if preview && !self.running {
