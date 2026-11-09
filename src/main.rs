@@ -10,11 +10,20 @@
 
 use mediadesk::ui::{App, APP_TITLE};
 
+fn app_icon() -> egui::IconData {
+    egui::IconData {
+        rgba: include_bytes!("../assets/icon.rgba").to_vec(),
+        width: 128,
+        height: 128,
+    }
+}
+
 fn main() -> eframe::Result {
     let viewport = egui::ViewportBuilder::default()
         .with_title(APP_TITLE)
         .with_inner_size([1500.0, 900.0])
-        .with_min_inner_size([1100.0, 700.0]);
+        .with_min_inner_size([1100.0, 700.0])
+        .with_icon(app_icon());
     let options = eframe::NativeOptions {
         viewport,
         ..Default::default()

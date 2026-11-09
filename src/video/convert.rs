@@ -393,9 +393,16 @@ mod tests {
         let out = Path::new("p.png");
         let plain = preview_args(Path::new("a.mkv"), 5.0, out, &Color::default()).join(" ");
         assert!(plain.ends_with("scale='min(960,iw)':-2 p.png"), "{plain}");
-        let c = Color { enabled: true, saturation: 2.0, ..Default::default() };
+        let c = Color {
+            enabled: true,
+            saturation: 2.0,
+            ..Default::default()
+        };
         let tinted = preview_args(Path::new("a.mkv"), 5.0, out, &c).join(" ");
-        assert!(tinted.contains("scale='min(960,iw)':-2,eq=saturation=2.00"), "{tinted}");
+        assert!(
+            tinted.contains("scale='min(960,iw)':-2,eq=saturation=2.00"),
+            "{tinted}"
+        );
     }
 
     #[test]
