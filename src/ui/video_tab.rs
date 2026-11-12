@@ -951,19 +951,19 @@ impl VideoTab {
                             egui::Align2::LEFT_CENTER,
                             name,
                             egui::FontId::proportional(14.5),
-                            egui::Color32::WHITE,
+                            theme::ON_COLOR,
                         );
                         ui.painter().text(
                             egui::pos2(left, rect.top() + 33.0),
                             egui::Align2::LEFT_CENTER,
                             detail,
                             egui::FontId::proportional(12.5),
-                            egui::Color32::WHITE,
+                            theme::ON_COLOR,
                         );
                         let status_color = match e.status {
                             Status::Done(_) => theme::TEAL,
                             Status::Failed(_) => theme::ACCENT,
-                            _ => egui::Color32::WHITE,
+                            _ => theme::ON_COLOR,
                         };
                         ui.painter().text(
                             egui::pos2(rect.right() - 14.0, rect.top() + 24.0),
@@ -1112,7 +1112,7 @@ impl VideoTab {
                                 rect.bottom() - crop.bottom as f32 * sy,
                             ),
                         );
-                        let shade = egui::Color32::from_black_alpha(150);
+                        let shade = egui::Color32::from_rgba_unmultiplied(0x05, 0x0b, 0x2a, 150);
                         let p = ui.painter();
                         p.rect_filled(
                             egui::Rect::from_min_max(
